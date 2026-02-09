@@ -34,7 +34,6 @@ export function Workspace() {
   const [editingPersonName, setEditingPersonName] = useState('');
   const [viewerOpen, setViewerOpen] = useState(false);
   const [peopleModalOpen, setPeopleModalOpen] = useState(false);
-  const [paidPeople, setPaidPeople] = useState<Set<string>>(() => new Set());
   const [prepaidModalOpen, setPrepaidModalOpen] = useState(false);
   const [prepaidItemId, setPrepaidItemId] = useState<string>('');
   const [prepaidPayerId, setPrepaidPayerId] = useState<string>('');
@@ -95,19 +94,6 @@ export function Workspace() {
       unsubscribe();
     };
   }, [sessionId]);
-
-  useEffect(() => {
-    setPaidPeople((prev) => {
-      const validIds = new Set(people.map((person) => person.id));
-      const next = new Set<string>();
-      prev.forEach((id) => {
-        if (validIds.has(id)) {
-          next.add(id);
-        }
-      });
-      return next;
-    });
-  }, [people]);
 
   const locked = session?.status === 'LOCKED';
   const currency = session?.currency ?? 'USD';
@@ -278,16 +264,19 @@ export function Workspace() {
     ? sharedByAllItems.reduce((sum, item) => sum + item.total_price, 0) / people.length
     : 0;
 
-  const togglePaidStatus = (personId: string) => {
-    setPaidPeople((prev) => {
-      const next = new Set(prev);
-      if (next.has(personId)) {
-        next.delete(personId);
-      } else {
-        next.add(personId);
-      }
-      return next;
-    });
+  const togglePaidStatus = async (personId: string) => {
+    if (!sessionId || locked) {
+      return;
+    }
+    const person = peopleById.get(personId);
+    if (!person) {
+      return;
+    }
+    try {
+      await dataClient.updatePerson(sessionId, personId, { is_paid: !person.is_paid });
+    } catch {
+      setError('Unable to update payment status.');
+    }
   };
 
   const handleAddPerson = async (event: FormEvent) => {
@@ -769,7 +758,7 @@ export function Workspace() {
               <p className="caption">Add people to see per-person totals.</p>
             ) : (
               people.map((person) => {
-                const isPaid = paidPeople.has(person.id);
+                const isPaid = Boolean(person.is_paid);
                 const deduction = equalSplitDeductions.get(person.id) ?? 0;
                 return (
                   <details key={person.id} className="breakdown-card">

@@ -72,3 +72,16 @@ firebase deploy
 - OCR capture and parsing review
 - Item explosion and assignment logic
 - Confirmation receipt view
+
+## Firestore Backfill (Internal)
+
+This repo includes a one-off script to backfill new fields in Firestore.
+
+```bash
+node scripts/backfill-is-paid.mjs
+```
+
+Notes:
+- The service account key is expected at `splitscan-660e7-firebase-adminsdk-fbsvc-5447b22557.json` in the repo root.
+- The key is gitignored; do not commit it.
+- You can override the key path via `GOOGLE_APPLICATION_CREDENTIALS`.

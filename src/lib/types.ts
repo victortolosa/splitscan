@@ -19,6 +19,7 @@ export type Person = {
   id: string;
   session_id: string;
   display_name: string;
+  is_paid: boolean;
   created_at: string;
   updated_at: string;
 };

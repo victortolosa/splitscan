@@ -110,6 +110,11 @@ const normalizeAllocation = (raw: Allocation): Allocation => ({
   shares: numberize(raw.shares),
 });
 
+const normalizePerson = (raw: Person): Person => ({
+  ...raw,
+  is_paid: typeof raw.is_paid === 'boolean' ? raw.is_paid : false,
+});
+
 const channelMap = new Map<string, BroadcastChannel>();
 
 const getChannel = (sessionId: string) => {
@@ -184,7 +189,7 @@ const localClient: DataClient = {
     return readJson<Group[]>(groupsKey(sessionId), []);
   },
   async listPeople(sessionId) {
-    return readJson<Person[]>(peopleKey(sessionId), []);
+    return readJson<Person[]>(peopleKey(sessionId), []).map((person) => normalizePerson(person));
   },
   async listItems(sessionId) {
     return readJson<Item[]>(itemsKey(sessionId), []).map((item) => ({
@@ -223,6 +228,7 @@ const localClient: DataClient = {
       id: generateId(10),
       session_id: sessionId,
       display_name: displayName,
+      is_paid: false,
       created_at: now,
       updated_at: now,
     };
@@ -515,7 +521,7 @@ const firebaseClient: DataClient = {
     await ensureAuth();
     const ref = collection(firestoreDb, 'sessions', sessionId, 'people');
     const snapshot = await getDocs(query(ref, orderBy('created_at', 'asc')));
-    return snapshot.docs.map((docSnap) => docSnap.data() as Person);
+    return snapshot.docs.map((docSnap) => normalizePerson(docSnap.data() as Person));
   },
   async listItems(sessionId) {
     if (!firestoreDb) {
@@ -575,6 +581,7 @@ const firebaseClient: DataClient = {
       id: generateId(10),
       session_id: sessionId,
       display_name: displayName,
+      is_paid: false,
       created_at: now,
       updated_at: now,
     };
@@ -589,7 +596,7 @@ const firebaseClient: DataClient = {
     const refDoc = doc(firestoreDb, 'sessions', sessionId, 'people', personId);
     await updateDoc(refDoc, { ...patch, updated_at: new Date().toISOString() });
     const snapshot = await getDoc(refDoc);
-    return snapshot.data() as Person;
+    return normalizePerson(snapshot.data() as Person);
   },
   async addItem(sessionId, input) {
     if (!firestoreDb) {
@@ -724,7 +731,7 @@ const firebaseClient: DataClient = {
           }
           snapshot.docChanges().forEach((change) => {
             const type = change.type === 'added' ? 'INSERT' : change.type === 'modified' ? 'UPDATE' : 'DELETE';
-            handlers.onPerson({ type, record: change.doc.data() as Person });
+            handlers.onPerson({ type, record: normalizePerson(change.doc.data() as Person) });
           });
         });
 
