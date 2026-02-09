@@ -1,0 +1,18 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function sessionIsActive(sessionId) {
+      return firestore.get(/databases/(default)/documents/sessions/$(sessionId)).data.status == 'ACTIVE';
+    }
+
+    match /sessions/{sessionId}/receipts/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && sessionIsActive(sessionId);
+    }
+  }
+}
