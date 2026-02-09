@@ -2,8 +2,6 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { dataClient } from '../lib/data';
 import { runOcr, type OcrItem } from '../lib/ocr';
-import { getActiveGroup, setActiveGroup } from '../lib/session';
-import type { Group } from '../lib/types';
 
 const formatMoney = (value: number, currency: string) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value);
@@ -37,8 +35,6 @@ export function Scanner() {
   const [status, setStatus] = useState<'idle' | 'scanning' | 'review' | 'saving'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [groupTarget, setGroupTarget] = useState<string | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [viewerTransparency, setViewerTransparency] = useState(0);
@@ -129,30 +125,6 @@ export function Scanner() {
           return;
         }
         setLocked(session.status === 'LOCKED');
-      })
-      .catch(() => undefined);
-
-    return () => {
-      active = false;
-    };
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (!sessionId) {
-      return;
-    }
-    let active = true;
-    dataClient
-      .listGroups(sessionId)
-      .then((data) => {
-        if (!active) {
-          return;
-        }
-        setGroups(data);
-        const saved = getActiveGroup(sessionId);
-        if (saved && saved !== 'all' && saved !== 'ungrouped') {
-          setGroupTarget(saved);
-        }
       })
       .catch(() => undefined);
 
@@ -282,7 +254,7 @@ export function Scanner() {
           quantity: Number(item.quantity) || 1,
           unit_price: Number(item.unit_price) || 0,
           total_price: Number(item.total_price) || 0,
-          group_id: groupTarget,
+          group_id: null,
         });
       }
       navigate(`/${sessionId}`);
@@ -366,30 +338,6 @@ export function Scanner() {
             Back to workspace
           </Link>
         </div>
-        <div style={{ marginTop: 12 }}>
-          <label className="caption" style={{ display: 'block', marginBottom: 6 }}>
-            Assign to group
-          </label>
-          <select
-            className="select"
-            value={groupTarget ?? ''}
-            onChange={(event) => {
-              const value = event.target.value || null;
-              setGroupTarget(value);
-              if (sessionId) {
-                setActiveGroup(sessionId, value ?? 'ungrouped');
-              }
-            }}
-            disabled={locked}
-          >
-            <option value="">Ungrouped</option>
-            {groups.map((group) => (
-              <option key={group.id} value={group.id}>
-                {group.name}
-              </option>
-            ))}
-          </select>
-        </div>
       </section>
 
       {error && <div className="notice">{error}</div>}
@@ -452,7 +400,11 @@ export function Scanner() {
                 <div key={item.id} className="ocr-item-group">
                   <div className="ocr-item">
                     <div className="ocr-item-body">
+                      <label className="sr-only" htmlFor={`ocr-item-label-${item.id}`}>
+                        Item label
+                      </label>
                       <input
+                        id={`ocr-item-label-${item.id}`}
                         className="input"
                         value={item.label}
                         onChange={(event) => updateItem(item.id, { label: event.target.value })}

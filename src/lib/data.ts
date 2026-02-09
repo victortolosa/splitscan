@@ -38,6 +38,7 @@ type DataClient = {
   listAllocations: (sessionId: string) => Promise<Allocation[]>;
   addGroup: (sessionId: string, name: string) => Promise<Group>;
   addPerson: (sessionId: string, displayName: string) => Promise<Person>;
+  updatePerson: (sessionId: string, personId: string, patch: Partial<Person>) => Promise<Person>;
   addItem: (
     sessionId: string,
     input: {
@@ -206,6 +207,23 @@ const localClient: DataClient = {
     writeJson(peopleKey(sessionId), next);
     getChannel(sessionId)?.postMessage({ scope: 'person', change: { type: 'INSERT', record: person } });
     return person;
+  },
+  async updatePerson(sessionId, personId, patch) {
+    const people = readJson<Person[]>(peopleKey(sessionId), []);
+    const index = people.findIndex((person) => person.id === personId);
+    if (index === -1) {
+      throw new Error('Person not found');
+    }
+    const nextPerson: Person = {
+      ...people[index],
+      ...patch,
+      updated_at: new Date().toISOString(),
+    };
+    const next = [...people];
+    next[index] = nextPerson;
+    writeJson(peopleKey(sessionId), next);
+    getChannel(sessionId)?.postMessage({ scope: 'person', change: { type: 'UPDATE', record: nextPerson } });
+    return nextPerson;
   },
   async addItem(sessionId, input) {
     const now = new Date().toISOString();
@@ -536,6 +554,16 @@ const firebaseClient: DataClient = {
     };
     await setDoc(doc(firestoreDb, 'sessions', sessionId, 'people', person.id), person);
     return person;
+  },
+  async updatePerson(sessionId, personId, patch) {
+    if (!firestoreDb) {
+      throw new Error('Firebase is not configured');
+    }
+    await ensureAuth();
+    const refDoc = doc(firestoreDb, 'sessions', sessionId, 'people', personId);
+    await updateDoc(refDoc, { ...patch, updated_at: new Date().toISOString() });
+    const snapshot = await getDoc(refDoc);
+    return snapshot.data() as Person;
   },
   async addItem(sessionId, input) {
     if (!firestoreDb) {

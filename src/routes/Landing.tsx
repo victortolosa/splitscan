@@ -61,7 +61,11 @@ export function Landing() {
           <h2>Join a session</h2>
           <p>Paste a shared ID to jump straight into the workspace.</p>
           <form onSubmit={handleJoin} className="grid">
+            <label className="sr-only" htmlFor="join-session-id">
+              Session ID
+            </label>
             <input
+              id="join-session-id"
               className="input"
               placeholder="Session ID"
               value={joinId}

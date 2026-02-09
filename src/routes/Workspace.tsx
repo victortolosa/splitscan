@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { dataClient } from '../lib/data';
-import { addRecentSession, getActiveGroup, getClientId, setActiveGroup } from '../lib/session';
-import type { Allocation, Change, Group, Item, Person, ReceiptImage, Session } from '../lib/types';
+import { addRecentSession, getClientId } from '../lib/session';
+import type { Allocation, Change, Item, Person, ReceiptImage, Session } from '../lib/types';
 
 const formatMoney = (value: number, currency: string) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value);
@@ -20,21 +20,18 @@ const applyChange = <T extends { id: string }>(list: T[], change: Change<T>): T[
   return next;
 };
 
-type GroupFilter = 'all' | 'ungrouped' | string;
-
 export function Workspace() {
   const { sessionId } = useParams();
   const [session, setSession] = useState<Session | null>(null);
-  const [groups, setGroups] = useState<Group[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [receipts, setReceipts] = useState<ReceiptImage[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [groupName, setGroupName] = useState('');
-  const [groupFilter, setGroupFilter] = useState<GroupFilter>('all');
   const [personName, setPersonName] = useState('');
+  const [editingPersonId, setEditingPersonId] = useState<string | null>(null);
+  const [editingPersonName, setEditingPersonName] = useState('');
   const [itemLabel, setItemLabel] = useState('');
   const [itemQty, setItemQty] = useState(1);
   const [itemPrice, setItemPrice] = useState(0);
@@ -61,8 +58,7 @@ export function Workspace() {
           setLoading(false);
           return;
         }
-        const [groupData, peopleData, itemsData, receiptData, allocationData] = await Promise.all([
-          dataClient.listGroups(sessionId),
+        const [peopleData, itemsData, receiptData, allocationData] = await Promise.all([
           dataClient.listPeople(sessionId),
           dataClient.listItems(sessionId),
           dataClient.listReceipts(sessionId),
@@ -72,19 +68,13 @@ export function Workspace() {
           return;
         }
         setSession(sessionData);
-        setGroups(groupData);
         setPeople(peopleData);
         setItems(itemsData);
         setReceipts(receiptData);
         setAllocations(allocationData);
-        const savedFilter = getActiveGroup(sessionId);
-        if (savedFilter) {
-          setGroupFilter(savedFilter);
-        }
         addRecentSession(sessionId);
         unsubscribe = dataClient.subscribe(sessionId, {
           onSession: (change) => setSession(change.record),
-          onGroup: (change) => setGroups((prev) => applyChange(prev, change)),
           onPerson: (change) => setPeople((prev) => applyChange(prev, change)),
           onItem: (change) => setItems((prev) => applyChange(prev, change)),
           onReceipt: (change) => setReceipts((prev) => applyChange(prev, change)),
@@ -108,13 +98,6 @@ export function Workspace() {
   }, [sessionId]);
 
   useEffect(() => {
-    if (!sessionId) {
-      return;
-    }
-    setActiveGroup(sessionId, groupFilter);
-  }, [groupFilter, sessionId]);
-
-  useEffect(() => {
     if (!session) {
       return;
     }
@@ -125,16 +108,6 @@ export function Workspace() {
 
   const locked = session?.status === 'LOCKED';
   const currency = session?.currency ?? 'USD';
-  const groupsSorted = useMemo(
-    () => [...groups].sort((a, b) => a.order - b.order),
-    [groups]
-  );
-  const activeGroupId = groupFilter !== 'all' && groupFilter !== 'ungrouped' ? groupFilter : null;
-  const groupNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    groupsSorted.forEach((group) => map.set(group.id, group.name));
-    return map;
-  }, [groupsSorted]);
   const displayItems = useMemo(() => {
     const filtered = items.filter((item) => {
       if (item.parent_item_id && item.parent_item_id.length > 0) {
@@ -142,16 +115,8 @@ export function Workspace() {
       }
       return !item.is_exploded;
     });
-    return filtered.filter((item) => {
-      if (groupFilter === 'all') {
-        return true;
-      }
-      if (groupFilter === 'ungrouped') {
-        return !item.group_id;
-      }
-      return item.group_id === groupFilter;
-    });
-  }, [items, groupFilter]);
+    return filtered;
+  }, [items]);
   const billableItems = useMemo(() => {
     return items.filter((item) => {
       if (item.parent_item_id && item.parent_item_id.length > 0) {
@@ -225,24 +190,38 @@ export function Workspace() {
       return;
     }
     try {
-      await dataClient.addPerson(sessionId, personName.trim());
+      const person = await dataClient.addPerson(sessionId, personName.trim());
+      setPeople((prev) => applyChange(prev, { type: 'INSERT', record: person }));
       setPersonName('');
     } catch (err) {
       setError('Unable to add person.');
     }
   };
 
-  const handleAddGroup = async (event: FormEvent) => {
+  const handleEditPerson = (person: Person) => {
+    setEditingPersonId(person.id);
+    setEditingPersonName(person.display_name);
+  };
+
+  const handleCancelEditPerson = () => {
+    setEditingPersonId(null);
+    setEditingPersonName('');
+  };
+
+  const handleUpdatePerson = async (event: FormEvent) => {
     event.preventDefault();
-    if (!sessionId || !groupName.trim()) {
+    if (!sessionId || !editingPersonId || !editingPersonName.trim()) {
       return;
     }
     try {
-      const group = await dataClient.addGroup(sessionId, groupName.trim());
-      setGroupName('');
-      setGroupFilter(group.id);
+      const person = await dataClient.updatePerson(sessionId, editingPersonId, {
+        display_name: editingPersonName.trim(),
+      });
+      setPeople((prev) => applyChange(prev, { type: 'UPDATE', record: person }));
+      setEditingPersonId(null);
+      setEditingPersonName('');
     } catch (err) {
-      setError('Unable to add group.');
+      setError('Unable to update person.');
     }
   };
 
@@ -260,7 +239,7 @@ export function Workspace() {
         quantity,
         unit_price: unitPrice,
         total_price: total,
-        group_id: activeGroupId,
+        group_id: null,
       });
       setItemLabel('');
       setItemQty(1);
@@ -412,7 +391,11 @@ export function Workspace() {
         <div className="panel">
           <h3 className="section-title">People</h3>
           <form onSubmit={handleAddPerson} className="grid">
+            <label className="sr-only" htmlFor="person-name">
+              Person name
+            </label>
             <input
+              id="person-name"
               className="input"
               placeholder="Name"
               value={personName}
@@ -429,8 +412,43 @@ export function Workspace() {
             ) : (
               people.map((person) => (
                 <div key={person.id} className="list-item">
-                  <span>{person.display_name}</span>
-                  <span>{formatMoney(personTotals.get(person.id) ?? 0, currency)}</span>
+                  {editingPersonId === person.id ? (
+                    <form
+                      onSubmit={handleUpdatePerson}
+                      style={{ display: 'flex', gap: 12, alignItems: 'center', width: '100%' }}
+                    >
+                      <label className="sr-only" htmlFor={`edit-person-${person.id}`}>
+                        Edit person name
+                      </label>
+                      <input
+                        id={`edit-person-${person.id}`}
+                        className="input"
+                        value={editingPersonName}
+                        onChange={(event) => setEditingPersonName(event.target.value)}
+                        disabled={locked}
+                        autoFocus
+                        style={{ flex: 1, minWidth: 0 }}
+                      />
+                      <button className="button secondary" type="submit" disabled={locked}>
+                        Save
+                      </button>
+                      <button className="button secondary" type="button" onClick={handleCancelEditPerson} disabled={locked}>
+                        Cancel
+                      </button>
+                    </form>
+                  ) : (
+                    <>
+                      <span>{person.display_name}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span>{formatMoney(personTotals.get(person.id) ?? 0, currency)}</span>
+                        {!locked && (
+                          <button className="button secondary" type="button" onClick={() => handleEditPerson(person)}>
+                            Edit
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               ))
             )}
@@ -439,48 +457,12 @@ export function Workspace() {
 
         <div className="panel">
           <h3 className="section-title">Items</h3>
-          <div className="group-toolbar">
-            <div className="group-tabs">
-              <button
-                className={`chip ${groupFilter === 'all' ? 'active' : ''}`}
-                onClick={() => setGroupFilter('all')}
-                type="button"
-              >
-                All Items
-              </button>
-              <button
-                className={`chip ${groupFilter === 'ungrouped' ? 'active' : ''}`}
-                onClick={() => setGroupFilter('ungrouped')}
-                type="button"
-              >
-                Ungrouped
-              </button>
-              {groupsSorted.map((group) => (
-                <button
-                  key={group.id}
-                  className={`chip ${groupFilter === group.id ? 'active' : ''}`}
-                  onClick={() => setGroupFilter(group.id)}
-                  type="button"
-                >
-                  {group.name}
-                </button>
-              ))}
-            </div>
-            <form onSubmit={handleAddGroup} className="group-form">
-              <input
-                className="input"
-                placeholder="New group"
-                value={groupName}
-                onChange={(event) => setGroupName(event.target.value)}
-                disabled={locked}
-              />
-              <button className="button secondary" type="submit" disabled={locked}>
-                Add Group
-              </button>
-            </form>
-          </div>
           <form onSubmit={handleAddItem} className="grid">
+            <label className="sr-only" htmlFor="item-label">
+              Item label
+            </label>
             <input
+              id="item-label"
               className="input"
               placeholder="Item label"
               value={itemLabel}
@@ -488,7 +470,11 @@ export function Workspace() {
               disabled={locked}
             />
             <div className="grid two">
+              <label className="sr-only" htmlFor="item-qty">
+                Quantity
+              </label>
               <input
+                id="item-qty"
                 className="input"
                 type="number"
                 min={1}
@@ -497,7 +483,11 @@ export function Workspace() {
                 onChange={(event) => setItemQty(Number(event.target.value))}
                 disabled={locked}
               />
+              <label className="sr-only" htmlFor="item-price">
+                Unit price
+              </label>
               <input
+                id="item-price"
                 className="input"
                 type="number"
                 min={0}
@@ -525,8 +515,7 @@ export function Workspace() {
                         {item.label} x{item.quantity}
                       </div>
                       <div className="caption">
-                        {item.group_id ? groupNameById.get(item.group_id) ?? 'Group' : 'Ungrouped'}
-                        {item.parent_item_id ? ' • Exploded' : ''}
+                        {item.parent_item_id ? 'Exploded' : 'Item'}
                         {!hasAllocations ? ' • Unassigned' : ''}
                       </div>
                       <div className="assignment-row">
@@ -583,7 +572,11 @@ export function Workspace() {
         <h3 className="section-title">Totals & Fees</h3>
         <form onSubmit={handleFeesUpdate} className="grid">
           <div className="grid two">
+            <label className="sr-only" htmlFor="tax-input">
+              Tax
+            </label>
             <input
+              id="tax-input"
               className="input"
               type="number"
               min={0}
@@ -593,7 +586,11 @@ export function Workspace() {
               disabled={locked}
               placeholder="Tax"
             />
+            <label className="sr-only" htmlFor="tip-input">
+              Tip
+            </label>
             <input
+              id="tip-input"
               className="input"
               type="number"
               min={0}
@@ -605,7 +602,11 @@ export function Workspace() {
             />
           </div>
           <div className="grid two">
+            <label className="sr-only" htmlFor="fees-input">
+              Additional fees
+            </label>
             <input
+              id="fees-input"
               className="input"
               type="number"
               min={0}
