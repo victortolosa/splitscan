@@ -2,6 +2,7 @@ export type SessionStatus = 'ACTIVE' | 'LOCKED';
 
 export type Session = {
   id: string;
+  receipt_name: string;
   status: SessionStatus;
   currency: string;
   tax_total: number;

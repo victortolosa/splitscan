@@ -253,6 +253,11 @@ textarea {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
   gap: 24px;
+  align-items: start;
+}
+
+.totals-panel {
+  align-self: start;
 }
 
 .section-title {

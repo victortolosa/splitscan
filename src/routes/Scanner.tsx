@@ -37,9 +37,11 @@ export function Scanner() {
   const [status, setStatus] = useState<'idle' | 'scanning' | 'review' | 'saving'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
+  const [receiptName, setReceiptName] = useState('');
   const [viewerOpen, setViewerOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const currency = 'USD';
+  const showReceiptNameField = isEditMode || status === 'review';
 
   const scannerMode = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -146,6 +148,7 @@ export function Scanner() {
           return;
         }
         setLocked(session.status === 'LOCKED');
+        setReceiptName(session.receipt_name ?? '');
       } catch {
         return;
       }
@@ -257,6 +260,17 @@ export function Scanner() {
     setImageMeta(null);
     setOcrItems([]);
     setProgress(0);
+  };
+
+  const handleReceiptNameSave = async () => {
+    if (!sessionId || locked) {
+      return;
+    }
+    try {
+      await dataClient.updateSession(sessionId, { receipt_name: receiptName.trim() });
+    } catch {
+      setError('Unable to update receipt name.');
+    }
   };
 
   const updateItem = (id: string, patch: Partial<ReviewItem>) => {
@@ -407,6 +421,19 @@ export function Scanner() {
           <div>
             <h2 style={{ margin: 0 }}>{isEditMode ? 'Edit Items' : 'Receipt Scanner'}</h2>
             <p className="caption">Session {sessionId}</p>
+            {showReceiptNameField && (
+              <label style={{ display: 'block', marginTop: 12 }}>
+                <span className="field-label">Receipt name</span>
+                <input
+                  className="input"
+                  value={receiptName}
+                  onChange={(event) => setReceiptName(event.target.value)}
+                  onBlur={handleReceiptNameSave}
+                  placeholder="Add a receipt name"
+                  disabled={locked}
+                />
+              </label>
+            )}
           </div>
           <Link className="button secondary" to={`/${sessionId}`}>
             Back to workspace

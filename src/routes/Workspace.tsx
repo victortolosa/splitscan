@@ -111,6 +111,8 @@ export function Workspace() {
 
   const locked = session?.status === 'LOCKED';
   const currency = session?.currency ?? 'USD';
+  const receiptTitle = session?.receipt_name?.trim() ? session.receipt_name.trim() : 'Receipt';
+  const sessionSubtitle = session ? `Session ${session.id}` : '';
   const displayItems = useMemo(() => {
     const filtered = items.filter((item) => {
       if (item.parent_item_id && item.parent_item_id.length > 0) {
@@ -464,7 +466,7 @@ export function Workspace() {
           <span className="brand-dot" />
           SplitScan
         </div>
-        <div className="panel">
+        <div className="panel totals-panel">
           <h2>Unable to open session</h2>
           <p>{error ?? 'Missing session data.'}</p>
           <Link className="button secondary" to="/">
@@ -488,7 +490,12 @@ export function Workspace() {
       <details className="panel mobile-collapsible session-collapsible">
         <summary className="section-header mobile-collapsible__summary session-summary">
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-            <h2 style={{ margin: 0 }}>Session {session.id}</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <h2 style={{ margin: 0 }}>{receiptTitle}</h2>
+              <p className="caption" style={{ margin: 0 }}>
+                {sessionSubtitle}
+              </p>
+            </div>
             <span className="badge">{session.status}</span>
           </div>
           <div className="session-summary-actions">
@@ -522,7 +529,12 @@ export function Workspace() {
         <div className="mobile-collapsible__body">
           <div className="section-header session-desktop-header">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-              <h2 style={{ margin: 0 }}>Session {session.id}</h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <h2 style={{ margin: 0 }}>{receiptTitle}</h2>
+                <p className="caption" style={{ margin: 0 }}>
+                  {sessionSubtitle}
+                </p>
+              </div>
               <span className="badge">{session.status}</span>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -856,7 +868,7 @@ export function Workspace() {
               <div>
                 <h3 className="section-title">Split Prepaid Item</h3>
                 <p className="caption" style={{ marginTop: 4 }}>
-                  Choose an equal split item and who already paid it.
+                  The total is split per person, the payer’s share is removed, and the remaining amount is split across everyone else.
                 </p>
               </div>
               <button className="button secondary" type="button" onClick={() => setPrepaidModalOpen(false)}>

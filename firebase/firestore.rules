@@ -10,12 +10,47 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/sessions/$(sessionId)).data.status == 'ACTIVE';
     }
 
+    function sessionKeysValid(data) {
+      return data.keys().hasOnly([
+        'id',
+        'receipt_name',
+        'status',
+        'currency',
+        'tax_total',
+        'tip_total',
+        'fees_total',
+        'equal_split_paid_by',
+        'created_at',
+        'updated_at',
+        'locked_at',
+        'locked_by',
+      ]);
+    }
+
+    function sessionValuesValid(data) {
+      return data.id is string
+        && data.status in ['ACTIVE', 'LOCKED']
+        && data.currency is string
+        && data.tax_total is number
+        && data.tip_total is number
+        && data.fees_total is number
+        && data.equal_split_paid_by is map
+        && data.created_at is string
+        && data.updated_at is string
+        && (('receipt_name' in data) ? data.receipt_name is string : true)
+        && (data.locked_at == null || data.locked_at is string)
+        && (data.locked_by == null || data.locked_by is string);
+    }
+
     match /sessions/{sessionId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      allow create: if isSignedIn()
+        && sessionKeysValid(request.resource.data)
+        && sessionValuesValid(request.resource.data);
       allow update: if isSignedIn()
         && resource.data.status == 'ACTIVE'
-        && request.resource.data.status in ['ACTIVE', 'LOCKED'];
+        && sessionKeysValid(request.resource.data)
+        && sessionValuesValid(request.resource.data);
       allow delete: if false;
 
       match /people/{personId} {

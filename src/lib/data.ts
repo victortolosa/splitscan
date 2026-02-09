@@ -31,6 +31,7 @@ type SessionPatch = Partial<
     | 'status'
     | 'locked_at'
     | 'locked_by'
+    | 'receipt_name'
     | 'tax_total'
     | 'tip_total'
     | 'fees_total'
@@ -80,6 +81,7 @@ const numberize = (value: unknown) => (typeof value === 'string' ? Number(value)
 
 const normalizeSession = (raw: Session): Session => ({
   ...raw,
+  receipt_name: raw.receipt_name ?? '',
   tax_total: numberize(raw.tax_total),
   tip_total: numberize(raw.tip_total),
   fees_total: numberize(raw.fees_total),
@@ -152,6 +154,7 @@ const localClient: DataClient = {
     const now = new Date().toISOString();
     const session: Session = {
       id,
+      receipt_name: '',
       status: 'ACTIVE',
       currency: 'USD',
       tax_total: 0,
@@ -469,6 +472,7 @@ const firebaseClient: DataClient = {
     const now = new Date().toISOString();
     const session: Session = {
       id,
+      receipt_name: '',
       status: 'ACTIVE',
       currency: 'USD',
       tax_total: 0,
