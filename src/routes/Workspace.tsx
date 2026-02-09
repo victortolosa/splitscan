@@ -34,6 +34,7 @@ export function Workspace() {
   const [editingPersonName, setEditingPersonName] = useState('');
   const [viewerOpen, setViewerOpen] = useState(false);
   const [peopleModalOpen, setPeopleModalOpen] = useState(false);
+  const [paidPeople, setPaidPeople] = useState<Set<string>>(() => new Set());
   const clientId = useMemo(() => getClientId(), []);
 
   useEffect(() => {
@@ -91,6 +92,19 @@ export function Workspace() {
       unsubscribe();
     };
   }, [sessionId]);
+
+  useEffect(() => {
+    setPaidPeople((prev) => {
+      const validIds = new Set(people.map((person) => person.id));
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (validIds.has(id)) {
+          next.add(id);
+        }
+      });
+      return next;
+    });
+  }, [people]);
 
   const locked = session?.status === 'LOCKED';
   const currency = session?.currency ?? 'USD';
@@ -230,6 +244,18 @@ export function Workspace() {
   const sharedByAllPerPerson = people.length > 0
     ? sharedByAllItems.reduce((sum, item) => sum + item.total_price, 0) / people.length
     : 0;
+
+  const togglePaidStatus = (personId: string) => {
+    setPaidPeople((prev) => {
+      const next = new Set(prev);
+      if (next.has(personId)) {
+        next.delete(personId);
+      } else {
+        next.add(personId);
+      }
+      return next;
+    });
+  };
 
   const handleAddPerson = async (event: FormEvent) => {
     event.preventDefault();
@@ -393,9 +419,38 @@ export function Workspace() {
       </div>
 
       <details className="panel mobile-collapsible session-collapsible">
-        <summary className="section-header mobile-collapsible__summary">
-          <h2 style={{ margin: 0 }}>Session {session.id}</h2>
-          <span className="badge">{session.status}</span>
+        <summary className="section-header mobile-collapsible__summary session-summary">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+            <h2 style={{ margin: 0 }}>Session {session.id}</h2>
+            <span className="badge">{session.status}</span>
+          </div>
+          <div className="session-summary-actions">
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {locked ? (
+                <button className="button secondary" type="button" disabled onClick={(event) => event.stopPropagation()}>
+                  Edit Receipt
+                </button>
+              ) : (
+                <Link
+                  className="button secondary"
+                  to={`/${sessionId}/scan?mode=edit`}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  Edit Receipt
+                </Link>
+              )}
+              <button
+                className="button secondary"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setPeopleModalOpen(true);
+                }}
+              >
+                Manage People
+              </button>
+            </div>
+          </div>
         </summary>
         <div className="mobile-collapsible__body">
           <div className="section-header session-desktop-header">
@@ -451,9 +506,9 @@ export function Workspace() {
 
       <section className="workspace-layout">
         <details className="panel mobile-collapsible" open>
-          <summary className="section-header mobile-collapsible__summary">
+          <summary className="section-header mobile-collapsible__summary items-summary">
             <h3 className="section-title">Items</h3>
-            <span className="caption">Tap to {displayItems.length === 0 ? 'view' : 'expand'}</span>
+            <span className="summary-arrow" aria-hidden="true" />
           </summary>
           <div className="mobile-collapsible__body">
             <div className="section-header items-desktop-header">
@@ -606,39 +661,58 @@ export function Workspace() {
             {people.length === 0 ? (
               <p className="caption">Add people to see per-person totals.</p>
             ) : (
-              people.map((person) => (
-                <details key={person.id} className="breakdown-card">
-                  <summary className="list-item breakdown-summary">
-                    <span className="breakdown-arrow" aria-hidden="true" />
-                    <span>{person.display_name}</span>
-                    <span>{formatMoney(personTotals.get(person.id) ?? 0, currency)}</span>
-                  </summary>
-                  <div className="breakdown-body">
-                    <div className="breakdown-line">
-                      <span className="caption">Items total</span>
-                      <strong>{formatMoney(allocationTotals.totals.get(person.id) ?? 0, currency)}</strong>
-                    </div>
-                    {sharedByAllItems.length > 0 && (
-                      <div className="breakdown-line">
-                        <span className="caption">Shared by all</span>
-                        <strong>{formatMoney(sharedByAllPerPerson, currency)}</strong>
+              people.map((person) => {
+                const isPaid = paidPeople.has(person.id);
+                return (
+                  <details key={person.id} className="breakdown-card">
+                    <summary className="list-item breakdown-summary">
+                      <span className="breakdown-arrow" aria-hidden="true" />
+                      <div className="breakdown-summary-name">
+                        <span>{person.display_name}</span>
+                        <span className={`paid-badge ${isPaid ? 'is-paid' : 'is-unpaid'}`}>
+                          {isPaid ? 'PAID' : 'NOT PAID'}
+                        </span>
                       </div>
-                    )}
-                    <div className="breakdown-items">
-                      {(personItemBreakdown.get(person.id)?.items ?? []).length === 0 ? (
-                        <p className="caption">No assigned items yet.</p>
-                      ) : (
-                        (personItemBreakdown.get(person.id)?.items ?? []).map((entry) => (
-                          <div key={`${person.id}-${entry.id}-${entry.amount}`} className="breakdown-line">
-                            <span className="caption">{entry.label}</span>
-                            <strong>{formatMoney(entry.amount, currency)}</strong>
-                          </div>
-                        ))
+                      <span>{formatMoney(personTotals.get(person.id) ?? 0, currency)}</span>
+                    </summary>
+                    <div className="breakdown-body">
+                      <div className="breakdown-line paid-toggle-row">
+                        <span className="caption">Payment status</span>
+                        <button
+                          className={`paid-toggle ${isPaid ? 'is-on' : 'is-off'}`}
+                          type="button"
+                          onClick={() => togglePaidStatus(person.id)}
+                          aria-pressed={isPaid}
+                        >
+                          {isPaid ? 'PAID' : 'NOT PAID'}
+                        </button>
+                      </div>
+                      <div className="breakdown-line">
+                        <span className="caption">Items total</span>
+                        <strong>{formatMoney(allocationTotals.totals.get(person.id) ?? 0, currency)}</strong>
+                      </div>
+                      {sharedByAllItems.length > 0 && (
+                        <div className="breakdown-line">
+                          <span className="caption">Shared by all</span>
+                          <strong>{formatMoney(sharedByAllPerPerson, currency)}</strong>
+                        </div>
                       )}
+                      <div className="breakdown-items">
+                        {(personItemBreakdown.get(person.id)?.items ?? []).length === 0 ? (
+                          <p className="caption">No assigned items yet.</p>
+                        ) : (
+                          (personItemBreakdown.get(person.id)?.items ?? []).map((entry) => (
+                            <div key={`${person.id}-${entry.id}-${entry.amount}`} className="breakdown-line">
+                              <span className="caption">{entry.label}</span>
+                              <strong>{formatMoney(entry.amount, currency)}</strong>
+                            </div>
+                          ))
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </details>
-              ))
+                  </details>
+                );
+              })
             )}
           </div>
         </div>
