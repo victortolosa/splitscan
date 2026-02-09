@@ -392,138 +392,140 @@ export function Workspace() {
         <span className="badge">Mode: {dataClient.mode}</span>
       </div>
 
-      <section className="panel">
-        <div className="section-header">
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-            <h2 style={{ margin: 0 }}>Session {session.id}</h2>
-            <span className="badge">{session.status}</span>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {locked ? (
-              <button className="button secondary" type="button" disabled>
-                Edit Receipt
+      <details className="panel mobile-collapsible session-collapsible">
+        <summary className="section-header mobile-collapsible__summary">
+          <h2 style={{ margin: 0 }}>Session {session.id}</h2>
+          <span className="badge">{session.status}</span>
+        </summary>
+        <div className="mobile-collapsible__body">
+          <div className="section-header session-desktop-header">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+              <h2 style={{ margin: 0 }}>Session {session.id}</h2>
+              <span className="badge">{session.status}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {locked ? (
+                <button className="button secondary" type="button" disabled>
+                  Edit Receipt
+                </button>
+              ) : (
+                <Link className="button secondary" to={`/${sessionId}/scan?mode=edit`}>
+                  Edit Receipt
+                </Link>
+              )}
+              <button className="button secondary" type="button" onClick={() => setPeopleModalOpen(true)}>
+                Manage People
               </button>
-            ) : (
-              <Link className="button secondary" to={`/${sessionId}/scan`}>
-                Edit Receipt
-              </Link>
+            </div>
+          </div>
+          <p className="caption">Client: {clientId}</p>
+          {locked && <p className="notice">This session is locked. Edits are disabled for everyone.</p>}
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {!locked && (
+              <button className="button secondary" onClick={handleLock}>
+                Lock Session
+              </button>
             )}
-            <button className="button secondary" type="button" onClick={() => setPeopleModalOpen(true)}>
-              Manage People
-            </button>
+            {!locked ? (
+              <>
+                <Link className="button primary" to={`/${sessionId}/scan`}>
+                  Scan Receipt
+                </Link>
+                <Link className="button secondary" to={`/${sessionId}/scan?mode=upload`}>
+                  Upload Image
+                </Link>
+              </>
+            ) : (
+              <>
+                <button className="button primary" disabled>
+                  Scan Receipt
+                </button>
+                <button className="button secondary" disabled>
+                  Upload Image
+                </button>
+              </>
+            )}
           </div>
         </div>
-        <p className="caption">Client: {clientId}</p>
-        {locked && <p className="notice">This session is locked. Edits are disabled for everyone.</p>}
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {!locked && (
-            <button className="button secondary" onClick={handleLock}>
-              Lock Session
-            </button>
-          )}
-          {!locked ? (
-            <>
-              <Link className="button primary" to={`/${sessionId}/scan`}>
-                Scan Receipt
-              </Link>
-              <Link className="button secondary" to={`/${sessionId}/scan?mode=upload`}>
-                Upload Image
-              </Link>
-            </>
-          ) : (
-            <>
-              <button className="button primary" disabled>
-                Scan Receipt
-              </button>
-              <button className="button secondary" disabled>
-                Upload Image
-              </button>
-            </>
-          )}
-        </div>
-      </section>
+      </details>
 
       <section className="workspace-layout">
-        <div className="panel">
-          <div className="section-header">
+        <details className="panel mobile-collapsible" open>
+          <summary className="section-header mobile-collapsible__summary">
             <h3 className="section-title">Items</h3>
-          </div>
-          <div className="list" style={{ marginTop: 16 }}>
-            {displayItems.length === 0 ? (
-              <p className="caption">No items yet.</p>
-            ) : (
-              displayItems.map((item) => {
-                const itemAllocations = allocationMap.get(item.id);
-                const hasAllocations = itemAllocations && itemAllocations.size > 0;
-                return (
-                  <div key={item.id} className="list-item item-row">
-                    <div style={{ flex: 1 }}>
-                      <div className="item-title">
-                        {item.label} x{item.quantity}
-                      </div>
-                      <div className="caption">
-                        {item.parent_item_id ? 'Exploded' : 'Item'}
-                        {!hasAllocations ? ' • Unassigned' : ''}
-                      </div>
-                      <div className="assignment-row">
-                        <span className="caption">Assign</span>
-                        <div className="chip-row">
-                          {people.length === 0 ? (
-                            <span className="caption">Add people to assign items.</span>
-                          ) : (
-                            <>
-                              <button
-                                className={`chip ${people.length > 0 && people.every((person) => itemAllocations?.has(person.id)) ? 'active' : ''}`}
-                                type="button"
-                                onClick={() => handleToggleAllAllocations(item.id)}
-                                disabled={locked}
-                                aria-pressed={people.length > 0 && people.every((person) => itemAllocations?.has(person.id))}
-                              >
-                                Equal Split
-                              </button>
-                              {people.map((person) => {
-                                const assigned = itemAllocations?.has(person.id);
-                                return (
-                                  <button
-                                    key={person.id}
-                                    className={`chip ${assigned ? 'active' : ''}`}
-                                    type="button"
-                                    onClick={() => handleToggleAllocation(item.id, person.id)}
-                                    disabled={locked}
-                                    aria-pressed={assigned}
-                                  >
-                                    {person.display_name}
-                                  </button>
-                                );
-                              })}
-                            </>
-                          )}
+            <span className="caption">Tap to {displayItems.length === 0 ? 'view' : 'expand'}</span>
+          </summary>
+          <div className="mobile-collapsible__body">
+            <div className="section-header items-desktop-header">
+              <h3 className="section-title">Items</h3>
+            </div>
+            <div className="list" style={{ marginTop: 16 }}>
+              {displayItems.length === 0 ? (
+                <p className="caption">No items yet.</p>
+              ) : (
+                displayItems.map((item) => {
+                  const itemAllocations = allocationMap.get(item.id);
+                  const hasAllocations = itemAllocations && itemAllocations.size > 0;
+                  return (
+                    <div key={item.id} className="list-item item-row">
+                      <div style={{ flex: 1 }}>
+                        <div className="item-header">
+                          <div className="item-title">
+                            {item.label} x{item.quantity}
+                          </div>
+                          <span className="item-price">{formatMoney(item.total_price, currency)}</span>
+                        </div>
+                        <div className="caption">
+                          {item.parent_item_id ? 'Exploded' : 'Item'}
+                          {!hasAllocations ? ' • Unassigned' : ''}
+                        </div>
+                        <div className="assignment-row">
+                          <span className="caption">Assign</span>
+                          <div className="chip-row">
+                            {people.length === 0 ? (
+                              <span className="caption">Add people to assign items.</span>
+                            ) : (
+                              <>
+                                <button
+                                  className={`chip ${people.length > 0 && people.every((person) => itemAllocations?.has(person.id)) ? 'active' : ''}`}
+                                  type="button"
+                                  onClick={() => handleToggleAllAllocations(item.id)}
+                                  disabled={locked}
+                                  aria-pressed={people.length > 0 && people.every((person) => itemAllocations?.has(person.id))}
+                                >
+                                  Equal Split
+                                </button>
+                                {people.map((person) => {
+                                  const assigned = itemAllocations?.has(person.id);
+                                  return (
+                                    <button
+                                      key={person.id}
+                                      className={`chip ${assigned ? 'active' : ''}`}
+                                      type="button"
+                                      onClick={() => handleToggleAllocation(item.id, person.id)}
+                                      disabled={locked}
+                                      aria-pressed={assigned}
+                                    >
+                                      {person.display_name}
+                                    </button>
+                                  );
+                                })}
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      {item.quantity > 1 && !item.is_exploded && !item.parent_item_id && (
-                        <button
-                          className="button secondary"
-                          type="button"
-                          onClick={() => handleExplode(item)}
-                          disabled={locked}
-                        >
-                          Explode
-                        </button>
-                      )}
-                      <span>{formatMoney(item.total_price, currency)}</span>
-                    </div>
-                  </div>
-                );
-              })
-            )}
+                  );
+                })
+              )}
+            </div>
+            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between' }}>
+              <span className="caption">Subtotal</span>
+              <strong>{formatMoney(subtotal, currency)}</strong>
+            </div>
           </div>
-          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between' }}>
-            <span className="caption">Subtotal</span>
-            <strong>{formatMoney(subtotal, currency)}</strong>
-          </div>
-        </div>
+        </details>
 
         <div className="panel">
           <div className="section-header">

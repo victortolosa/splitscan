@@ -41,10 +41,12 @@ export function Scanner() {
   const [zoom, setZoom] = useState(1);
   const currency = 'USD';
 
-  const uploadOnly = useMemo(() => {
+  const scannerMode = useMemo(() => {
     const params = new URLSearchParams(location.search);
-    return params.get('mode') === 'upload';
+    return params.get('mode') ?? 'scan';
   }, [location.search]);
+  const uploadOnly = scannerMode === 'upload';
+  const isEditMode = scannerMode === 'edit';
   const canCapture = Boolean(stream && status === 'idle');
   const clampZoom = (value: number) => Math.min(4, Math.max(1, value));
   const applyViewerScroll = () => {
@@ -88,6 +90,10 @@ export function Scanner() {
     if (uploadOnly || status !== 'idle' || imageDataUrl) {
       return;
     }
+    if (isEditMode) {
+      setStatus('review');
+      return;
+    }
     let active = true;
     const initCamera = async () => {
       try {
@@ -114,7 +120,7 @@ export function Scanner() {
     return () => {
       active = false;
     };
-  }, [status, imageDataUrl]);
+  }, [status, imageDataUrl, uploadOnly, isEditMode]);
 
   useEffect(() => {
     if (!sessionId || status !== 'idle') {
@@ -133,20 +139,51 @@ export function Scanner() {
       return;
     }
     let active = true;
-    dataClient
-      .getSession(sessionId)
-      .then((session) => {
+    const loadSession = async () => {
+      try {
+        const session = await dataClient.getSession(sessionId);
         if (!active || !session) {
           return;
         }
         setLocked(session.status === 'LOCKED');
-      })
-      .catch(() => undefined);
+      } catch {
+        return;
+      }
+    };
+
+    const loadItems = async () => {
+      if (!isEditMode) {
+        return;
+      }
+      try {
+        const items = await dataClient.listItems(sessionId);
+        if (!active) {
+          return;
+        }
+        const mapped = items
+          .filter((item) => !item.is_exploded)
+          .map<ReviewItem>((item) => ({
+            id: item.id,
+            label: item.label,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            total_price: item.total_price,
+            confidence: 100,
+            include: true,
+          }));
+        setOcrItems(mapped);
+      } catch {
+        return;
+      }
+    };
+
+    loadSession();
+    loadItems();
 
     return () => {
       active = false;
     };
-  }, [sessionId]);
+  }, [sessionId, isEditMode]);
 
   useEffect(() => {
     return () => {
@@ -253,24 +290,46 @@ export function Scanner() {
     setStatus('saving');
     setError(null);
     try {
-      if (imageDataUrl && imageMeta) {
+      if (!isEditMode && imageDataUrl && imageMeta) {
         await dataClient.addReceiptImage(sessionId, {
           dataUrl: imageDataUrl,
           width: imageMeta.width,
           height: imageMeta.height,
         });
       }
-      for (const item of ocrItems) {
-        if (!item.include || !item.label.trim()) {
-          continue;
+
+      if (!isEditMode) {
+        for (const item of ocrItems) {
+          if (!item.include || !item.label.trim()) {
+            continue;
+          }
+          await dataClient.addItem(sessionId, {
+            label: item.label.trim(),
+            quantity: Number(item.quantity) || 1,
+            unit_price: Number(item.unit_price) || 0,
+            total_price: Number(item.total_price) || 0,
+            group_id: null,
+          });
         }
-        await dataClient.addItem(sessionId, {
-          label: item.label.trim(),
-          quantity: Number(item.quantity) || 1,
-          unit_price: Number(item.unit_price) || 0,
-          total_price: Number(item.total_price) || 0,
-          group_id: null,
-        });
+      } else {
+        const existingItems = await dataClient.listItems(sessionId);
+        const existingMap = new Map(existingItems.map((item) => [item.id, item]));
+        for (const item of ocrItems) {
+          if (!item.include || !item.label.trim()) {
+            continue;
+          }
+          const payload = {
+            label: item.label.trim(),
+            quantity: Number(item.quantity) || 1,
+            unit_price: Number(item.unit_price) || 0,
+            total_price: Number(item.total_price) || 0,
+          };
+          if (existingMap.has(item.id)) {
+            await dataClient.updateItem(sessionId, item.id, payload);
+          } else {
+            await dataClient.addItem(sessionId, { ...payload, group_id: null });
+          }
+        }
       }
       navigate(`/${sessionId}`);
     } catch (err) {
@@ -346,7 +405,7 @@ export function Scanner() {
       <section className="panel">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <div>
-            <h2 style={{ margin: 0 }}>Receipt Scanner</h2>
+            <h2 style={{ margin: 0 }}>{isEditMode ? 'Edit Items' : 'Receipt Scanner'}</h2>
             <p className="caption">Session {sessionId}</p>
           </div>
           <Link className="button secondary" to={`/${sessionId}`}>
@@ -404,7 +463,7 @@ export function Scanner() {
       {status === 'review' && (
         <section className="panel">
           <div className="review-toolbar">
-            <h3 className="section-title">Review parsed items</h3>
+            <h3 className="section-title">{isEditMode ? 'Edit items' : 'Review parsed items'}</h3>
             <button
               className="button secondary"
               onClick={() => setViewerOpen(true)}
@@ -420,7 +479,11 @@ export function Scanner() {
           )}
           <div className="list" style={{ marginTop: 16 }}>
             {ocrItems.length === 0 ? (
-              <p className="caption">No items detected. Add manually or try another photo.</p>
+              <p className="caption">
+                {isEditMode
+                  ? 'No items yet. Add manual items here or scan a receipt from the workspace.'
+                  : 'No items detected. Add manually or try another photo.'}
+              </p>
             ) : (
               ocrItems.map((item, index) => (
                 <div key={item.id} className="ocr-item-group">
@@ -533,15 +596,23 @@ export function Scanner() {
             <strong>{formatMoney(total, currency)}</strong>
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 20 }}>
-            <button className="button secondary" onClick={handleReset}>
-              Retake
-            </button>
+            {!isEditMode && (
+              <button className="button secondary" onClick={handleReset}>
+                Retake
+              </button>
+            )}
             <button className="button secondary" onClick={handleAddBlank}>
               Add Manual Item
             </button>
-            <button className="button primary" onClick={handleCommit} disabled={status === 'saving' || locked}>
-              {status === 'saving' ? 'Saving...' : 'Commit to Workspace'}
-            </button>
+            {!isEditMode ? (
+              <button className="button primary" onClick={handleCommit} disabled={status === 'saving' || locked}>
+                {status === 'saving' ? 'Saving...' : 'Commit to Workspace'}
+              </button>
+            ) : (
+              <button className="button primary" onClick={handleCommit} disabled={status === 'saving' || locked}>
+                {status === 'saving' ? 'Saving...' : 'Save changes'}
+              </button>
+            )}
           </div>
         </section>
       )}
