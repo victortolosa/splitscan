@@ -41,10 +41,12 @@ export function Scanner() {
   const [groupTarget, setGroupTarget] = useState<string | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [viewerTransparency, setViewerTransparency] = useState(0);
   const currency = 'USD';
 
   const canCapture = Boolean(stream && status === 'idle');
   const clampZoom = (value: number) => Math.min(4, Math.max(1, value));
+  const viewerOpacity = 1 - viewerTransparency;
   const applyViewerScroll = () => {
     const viewer = viewerRef.current;
     if (!viewer) {
@@ -78,6 +80,7 @@ export function Scanner() {
   useEffect(() => {
     if (imageDataUrl) {
       setZoom(1);
+      setViewerTransparency(0);
       viewerScrollRef.current = { left: 0, top: 0 };
     }
   }, [imageDataUrl]);
@@ -289,19 +292,39 @@ export function Scanner() {
     }
   };
 
+  const createBlankItem = (index: number): ReviewItem => ({
+    id: `${Date.now()}-${index}`,
+    label: '',
+    quantity: 1,
+    unit_price: 0,
+    total_price: 0,
+    confidence: 100,
+    include: true,
+  });
+
   const handleAddBlank = () => {
-    setOcrItems((prev) => [
-      ...prev,
-      {
-        id: `${Date.now()}-${prev.length}`,
-        label: '',
-        quantity: 1,
-        unit_price: 0,
-        total_price: 0,
-        confidence: 100,
-        include: true,
-      },
-    ]);
+    setOcrItems((prev) => [...prev, createBlankItem(prev.length)]);
+  };
+
+  const handleAddBetween = (index: number) => {
+    setOcrItems((prev) => {
+      const next = [...prev];
+      next.splice(index, 0, createBlankItem(prev.length));
+      return next;
+    });
+  };
+
+  const moveItem = (from: number, delta: number) => {
+    setOcrItems((prev) => {
+      const target = from + delta;
+      if (target < 0 || target >= prev.length) {
+        return prev;
+      }
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(target, 0, moved);
+      return next;
+    });
   };
 
   const handleRemove = (id: string) => {
@@ -425,71 +448,104 @@ export function Scanner() {
             {ocrItems.length === 0 ? (
               <p className="caption">No items detected. Add manually or try another photo.</p>
             ) : (
-              ocrItems.map((item) => (
-                <div key={item.id} className="ocr-item">
-                  <div style={{ flex: 1 }}>
-                    <input
-                      className="input"
-                      value={item.label}
-                      onChange={(event) => updateItem(item.id, { label: event.target.value })}
-                    />
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                      <span className={`badge ${confidenceLabel(item.confidence).className}`}>
-                        {confidenceLabel(item.confidence).label}
-                      </span>
-                      <label className="toggle">
-                        <input
-                          type="checkbox"
-                          checked={item.include}
-                          onChange={(event) => updateItem(item.id, { include: event.target.checked })}
-                        />
-                        Include
-                      </label>
-                    </div>
-                  </div>
-                  <div className="ocr-fields">
-                    <label className="ocr-field">
-                      <span className="field-label">Quantity</span>
+              ocrItems.map((item, index) => (
+                <div key={item.id} className="ocr-item-group">
+                  <div className="ocr-item">
+                    <div className="ocr-item-body">
                       <input
                         className="input"
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={item.quantity}
-                        onChange={(event) => {
-                          const nextQty = Number(event.target.value);
-                          updateItem(item.id, {
-                            quantity: nextQty,
-                            total_price: nextQty * item.unit_price,
-                          });
-                        }}
+                        value={item.label}
+                        onChange={(event) => updateItem(item.id, { label: event.target.value })}
                       />
-                    </label>
-                    <label className="ocr-field">
-                      <span className="field-label">Unit price</span>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={item.unit_price}
-                        onChange={(event) => {
-                          const nextUnit = Number(event.target.value);
-                          updateItem(item.id, {
-                            unit_price: nextUnit,
-                            total_price: nextUnit * item.quantity,
-                          });
-                        }}
-                      />
-                    </label>
-                    <div className="ocr-field">
-                      <span className="field-label">Total</span>
-                      <div className="ocr-readout">{formatMoney(item.total_price, currency)}</div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                        <span className={`badge ${confidenceLabel(item.confidence).className}`}>
+                          {confidenceLabel(item.confidence).label}
+                        </span>
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={item.include}
+                            onChange={(event) => updateItem(item.id, { include: event.target.checked })}
+                          />
+                          Include
+                        </label>
+                      </div>
+                      <div className="ocr-fields">
+                        <label className="ocr-field">
+                          <span className="field-label">Quantity</span>
+                          <input
+                            className="input"
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={item.quantity}
+                            onChange={(event) => {
+                              const nextQty = Number(event.target.value);
+                              updateItem(item.id, {
+                                quantity: nextQty,
+                                total_price: nextQty * item.unit_price,
+                              });
+                            }}
+                          />
+                        </label>
+                        <label className="ocr-field">
+                          <span className="field-label">Unit price</span>
+                          <input
+                            className="input"
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={item.unit_price}
+                            onChange={(event) => {
+                              const nextUnit = Number(event.target.value);
+                              updateItem(item.id, {
+                                unit_price: nextUnit,
+                                total_price: nextUnit * item.quantity,
+                              });
+                            }}
+                          />
+                        </label>
+                        <div className="ocr-field ocr-field-total">
+                          <span className="field-label">Total</span>
+                          <div className="ocr-readout">{formatMoney(item.total_price, currency)}</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="ocr-item-actions">
+                      <div className="ocr-reorder">
+                        <button
+                          className="ocr-reorder-button"
+                          type="button"
+                          title="Move item up"
+                          aria-label="Move item up"
+                          onClick={() => moveItem(index, -1)}
+                          disabled={index === 0}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          className="ocr-reorder-button"
+                          type="button"
+                          title="Move item down"
+                          aria-label="Move item down"
+                          onClick={() => moveItem(index, 1)}
+                          disabled={index === ocrItems.length - 1}
+                        >
+                          ↓
+                        </button>
+                      </div>
+                      <button className="button secondary" onClick={() => handleRemove(item.id)}>
+                        Remove
+                      </button>
                     </div>
                   </div>
-                  <button className="button secondary" onClick={() => handleRemove(item.id)}>
-                    Remove
-                  </button>
+                  {index < ocrItems.length - 1 && (
+                    <div className="ocr-add-between-row">
+                      <button className="ocr-add-between" type="button" onClick={() => handleAddBetween(index + 1)}>
+                        + ADD
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -517,46 +573,65 @@ export function Scanner() {
           className="receipt-viewer-backdrop"
           role="dialog"
           aria-modal="true"
+          style={{ background: `rgba(15, 12, 10, ${0.65 * viewerOpacity})` }}
           onClick={(event) => {
             if (event.target === event.currentTarget) {
               handleViewerClose();
             }
           }}
         >
-          <div className="receipt-viewer-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="receipt-viewer-toolbar">
-              <div className="receipt-viewer-title">Original receipt</div>
-              <div className="receipt-viewer-actions">
-                <button
-                  className="button secondary"
-                  onClick={() => setZoom((value) => clampZoom(Number((value - 0.25).toFixed(2))))}
-                  disabled={zoom <= 1}
-                >
-                  Zoom out
-                </button>
-                <button
-                  className="button secondary"
-                  onClick={() => setZoom((value) => clampZoom(Number((value + 0.25).toFixed(2))))}
-                  disabled={zoom >= 4}
-                >
-                  Zoom in
-                </button>
-                <button className="button secondary" onClick={() => setZoom(1)} disabled={zoom === 1}>
-                  Reset
-                </button>
-                <button className="button primary" onClick={handleViewerClose}>
-                  Close
-                </button>
+          <div className="receipt-viewer-fade" style={{ opacity: viewerOpacity }}>
+            <div className="receipt-viewer-panel" onClick={(event) => event.stopPropagation()}>
+              <div className="receipt-viewer-toolbar">
+                <div className="receipt-viewer-title">Original receipt</div>
+                <div className="receipt-viewer-actions">
+                  <button
+                    className="button secondary"
+                    onClick={() => setZoom((value) => clampZoom(Number((value - 0.25).toFixed(2))))}
+                    disabled={zoom <= 1}
+                  >
+                    Zoom out
+                  </button>
+                  <button
+                    className="button secondary"
+                    onClick={() => setZoom((value) => clampZoom(Number((value + 0.25).toFixed(2))))}
+                    disabled={zoom >= 4}
+                  >
+                    Zoom in
+                  </button>
+                  <button className="button secondary" onClick={() => setZoom(1)} disabled={zoom === 1}>
+                    Reset
+                  </button>
+                  <button className="button primary" onClick={handleViewerClose}>
+                    Close
+                  </button>
+                </div>
+              </div>
+              <div className="receipt-viewer-canvas" ref={viewerRef}>
+                <img
+                  src={imageDataUrl}
+                  alt="Receipt full"
+                  style={{ transform: `scale(${zoom})` }}
+                  onLoad={applyViewerScroll}
+                />
               </div>
             </div>
-            <div className="receipt-viewer-canvas" ref={viewerRef}>
-              <img
-                src={imageDataUrl}
-                alt="Receipt full"
-                style={{ transform: `scale(${zoom})` }}
-                onLoad={applyViewerScroll}
+          </div>
+          <div className="receipt-viewer-slider" onClick={(event) => event.stopPropagation()}>
+            <label className="viewer-slider-label">
+              Transparency
+              <input
+                className="viewer-slider-input"
+                type="range"
+                min={0}
+                max={0.8}
+                step={0.05}
+                value={viewerTransparency}
+                onChange={(event) => setViewerTransparency(Number(event.target.value))}
+                aria-label="Transparency"
               />
-            </div>
+            </label>
+            <span className="viewer-slider-value">{Math.round(viewerTransparency * 100)}%</span>
           </div>
         </div>
       )}
