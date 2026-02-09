@@ -3,14 +3,39 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
+type RuntimeConfig = Partial<{
+  VITE_FIREBASE_API_KEY: string;
+  VITE_FIREBASE_AUTH_DOMAIN: string;
+  VITE_FIREBASE_PROJECT_ID: string;
+  VITE_FIREBASE_STORAGE_BUCKET: string;
+  VITE_FIREBASE_MESSAGING_SENDER_ID: string;
+  VITE_FIREBASE_APP_ID: string;
+  VITE_FIREBASE_MEASUREMENT_ID: string;
+}>;
+
+const runtimeConfig =
+  typeof window !== 'undefined'
+    ? (window as Window & { __SPLITSCAN_CONFIG__?: RuntimeConfig }).__SPLITSCAN_CONFIG__
+    : undefined;
+
+const env = import.meta.env as Record<string, string | undefined>;
+
+const resolveConfig = (key: keyof RuntimeConfig) => {
+  const value = runtimeConfig?.[key];
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+  return env[key];
+};
+
 const config = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string | undefined,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string | undefined,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID as string | undefined,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID as string | undefined,
+  apiKey: resolveConfig('VITE_FIREBASE_API_KEY'),
+  authDomain: resolveConfig('VITE_FIREBASE_AUTH_DOMAIN'),
+  projectId: resolveConfig('VITE_FIREBASE_PROJECT_ID'),
+  storageBucket: resolveConfig('VITE_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: resolveConfig('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: resolveConfig('VITE_FIREBASE_APP_ID'),
+  measurementId: resolveConfig('VITE_FIREBASE_MEASUREMENT_ID'),
 };
 
 export const hasFirebase = Boolean(config.apiKey && config.authDomain && config.projectId && config.appId);
