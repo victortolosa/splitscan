@@ -25,7 +25,18 @@ import type {
   SubscriptionHandlers,
 } from './types';
 
-type SessionPatch = Partial<Pick<Session, 'status' | 'locked_at' | 'locked_by' | 'tax_total' | 'tip_total' | 'fees_total'>>;
+type SessionPatch = Partial<
+  Pick<
+    Session,
+    | 'status'
+    | 'locked_at'
+    | 'locked_by'
+    | 'tax_total'
+    | 'tip_total'
+    | 'fees_total'
+    | 'equal_split_paid_by'
+  >
+>;
 
 type DataClient = {
   mode: 'firebase' | 'local';
@@ -72,6 +83,14 @@ const normalizeSession = (raw: Session): Session => ({
   tax_total: numberize(raw.tax_total),
   tip_total: numberize(raw.tip_total),
   fees_total: numberize(raw.fees_total),
+  equal_split_paid_by:
+    raw.equal_split_paid_by && typeof raw.equal_split_paid_by === 'object'
+      ? Object.fromEntries(
+          Object.entries(raw.equal_split_paid_by).filter(
+            ([key, value]) => typeof key === 'string' && typeof value === 'string'
+          )
+        )
+      : {},
 });
 
 const normalizeItem = (raw: Item): Item => ({
@@ -138,6 +157,7 @@ const localClient: DataClient = {
       tax_total: 0,
       tip_total: 0,
       fees_total: 0,
+      equal_split_paid_by: {},
       created_at: now,
       updated_at: now,
       locked_at: null,
@@ -154,7 +174,8 @@ const localClient: DataClient = {
     return session;
   },
   async getSession(id) {
-    return readJson<Session | null>(sessionKey(id), null);
+    const session = readJson<Session | null>(sessionKey(id), null);
+    return session ? normalizeSession(session as Session) : null;
   },
   async listGroups(sessionId) {
     return readJson<Group[]>(groupsKey(sessionId), []);
@@ -453,6 +474,7 @@ const firebaseClient: DataClient = {
       tax_total: 0,
       tip_total: 0,
       fees_total: 0,
+      equal_split_paid_by: {},
       created_at: now,
       updated_at: now,
       locked_at: null,

@@ -35,6 +35,9 @@ export function Workspace() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [peopleModalOpen, setPeopleModalOpen] = useState(false);
   const [paidPeople, setPaidPeople] = useState<Set<string>>(() => new Set());
+  const [prepaidModalOpen, setPrepaidModalOpen] = useState(false);
+  const [prepaidItemId, setPrepaidItemId] = useState<string>('');
+  const [prepaidPayerId, setPrepaidPayerId] = useState<string>('');
   const clientId = useMemo(() => getClientId(), []);
 
   useEffect(() => {
@@ -182,19 +185,47 @@ export function Workspace() {
   }, [billableItems, allocationMap, people]);
 
   const sharedByAllItemIds = useMemo(() => new Set(sharedByAllItems.map((item) => item.id)), [sharedByAllItems]);
+  const peopleById = useMemo(() => new Map(people.map((person) => [person.id, person])), [people]);
 
   const feeTotal = (session?.tax_total ?? 0) + (session?.tip_total ?? 0) + (session?.fees_total ?? 0);
   const feePerPerson = people.length > 0 ? feeTotal / people.length : 0;
-  const grandTotal = fullSubtotal + feeTotal;
+
+  const equalSplitPaidBy = useMemo(() => {
+    const validPeople = new Set(people.map((person) => person.id));
+    const validItems = new Set(sharedByAllItemIds);
+    const raw = session?.equal_split_paid_by ?? {};
+    const entries = Object.entries(raw).filter(
+      ([itemId, personId]) => validItems.has(itemId) && validPeople.has(personId)
+    );
+    return new Map(entries);
+  }, [people, sharedByAllItemIds, session?.equal_split_paid_by]);
+
+  const equalSplitDeductions = useMemo(() => {
+    const totals = new Map<string, number>();
+    if (people.length === 0) {
+      return totals;
+    }
+    sharedByAllItems.forEach((item) => {
+      const payerId = equalSplitPaidBy.get(item.id);
+      if (!payerId) {
+        return;
+      }
+      const perPersonShare = item.total_price / people.length;
+      const deduction = item.total_price - perPersonShare;
+      totals.set(payerId, (totals.get(payerId) ?? 0) + deduction);
+    });
+    return totals;
+  }, [people.length, sharedByAllItems, equalSplitPaidBy]);
 
   const personTotals = useMemo(() => {
     const totals = new Map<string, number>();
     people.forEach((person) => {
       const itemTotal = allocationTotals.totals.get(person.id) ?? 0;
-      totals.set(person.id, itemTotal + feePerPerson);
+      const deduction = equalSplitDeductions.get(person.id) ?? 0;
+      totals.set(person.id, itemTotal + feePerPerson - deduction);
     });
     return totals;
-  }, [people, allocationTotals, feePerPerson]);
+  }, [people, allocationTotals, feePerPerson, equalSplitDeductions]);
 
   const personItemBreakdown = useMemo(() => {
     const breakdown = new Map<
@@ -376,6 +407,42 @@ export function Workspace() {
       setError('Unable to update allocation.');
     }
   };
+
+  const openPrepaidModal = (itemId?: string) => {
+    if (locked || sharedByAllItems.length === 0) {
+      return;
+    }
+    const nextItemId = itemId ?? sharedByAllItems[0]?.id ?? '';
+    setPrepaidItemId(nextItemId);
+    setPrepaidPayerId(equalSplitPaidBy.get(nextItemId) ?? '');
+    setPrepaidModalOpen(true);
+  };
+
+  const handlePrepaidSave = async () => {
+    if (!prepaidItemId) {
+      return;
+    }
+    await handleSetEqualSplitPayer(prepaidItemId, prepaidPayerId || null);
+    setPrepaidModalOpen(false);
+  };
+
+  const handleSetEqualSplitPayer = async (itemId: string, personId: string | null) => {
+    if (!sessionId || locked) {
+      return;
+    }
+    const next = { ...(session?.equal_split_paid_by ?? {}) };
+    if (!personId) {
+      delete next[itemId];
+    } else {
+      next[itemId] = personId;
+    }
+    try {
+      await dataClient.updateSession(sessionId, { equal_split_paid_by: next });
+    } catch (err) {
+      setError('Unable to update deduction.');
+    }
+  };
+
 
 
   if (loading) {
@@ -584,14 +651,10 @@ export function Workspace() {
 
         <div className="panel">
           <div className="section-header">
-            <h3 className="section-title">Totals & Fees</h3>
+            <h3 className="section-title">Totals</h3>
           </div>
-          <p className="caption" style={{ marginTop: 0 }}>
-            Fees are managed in the receipt step.
-          </p>
           <div className="summary-grid">
             <div className="summary-row">
-              <span className="caption">Items subtotal</span>
               <strong>{formatMoney(fullSubtotal, currency)}</strong>
             </div>
             {feeTotal > 0 && (
@@ -606,10 +669,6 @@ export function Workspace() {
                 <strong>{formatMoney(allocationTotals.unassignedTotal, currency)}</strong>
               </div>
             )}
-            <div className="summary-row">
-              <span className="caption">Grand total</span>
-              <strong>{formatMoney(grandTotal, currency)}</strong>
-            </div>
             {feePerPerson > 0 && (
               <div className="summary-row">
                 <span className="caption">Equal fee share / person</span>
@@ -657,12 +716,46 @@ export function Workspace() {
               </div>
             </details>
           )}
+          <div style={{ marginTop: 12 }}>
+            <button
+              className="button secondary"
+              type="button"
+              onClick={() => openPrepaidModal()}
+              disabled={locked || sharedByAllItems.length === 0}
+            >
+              Split Prepaid item
+            </button>
+          </div>
+          {sharedByAllItems
+            .filter((item) => equalSplitPaidBy.has(item.id))
+            .map((item) => {
+              const payerId = equalSplitPaidBy.get(item.id) ?? '';
+              const payer = payerId ? peopleById.get(payerId)?.display_name ?? 'Unknown' : 'Unknown';
+              const perPersonShare = people.length > 0 ? item.total_price / people.length : 0;
+              const deduction = item.total_price - perPersonShare;
+              return (
+                <div key={`equal-split-line-${item.id}`} className="summary-row">
+                  <span className="caption">
+                    Prepaid: {item.label} ({payer})
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <strong>-{formatMoney(deduction, currency)}</strong>
+                    {!locked && (
+                      <button className="button secondary" type="button" onClick={() => openPrepaidModal(item.id)}>
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           <div className="list" style={{ marginTop: 16 }}>
             {people.length === 0 ? (
               <p className="caption">Add people to see per-person totals.</p>
             ) : (
               people.map((person) => {
                 const isPaid = paidPeople.has(person.id);
+                const deduction = equalSplitDeductions.get(person.id) ?? 0;
                 return (
                   <details key={person.id} className="breakdown-card">
                     <summary className="list-item breakdown-summary">
@@ -695,6 +788,12 @@ export function Workspace() {
                         <div className="breakdown-line">
                           <span className="caption">Shared by all</span>
                           <strong>{formatMoney(sharedByAllPerPerson, currency)}</strong>
+                        </div>
+                      )}
+                      {deduction > 0 && (
+                        <div className="breakdown-line">
+                          <span className="caption">Equal split deductions</span>
+                          <strong>-{formatMoney(deduction, currency)}</strong>
                         </div>
                       )}
                       <div className="breakdown-items">
@@ -746,6 +845,99 @@ export function Workspace() {
             <div className="modal-image">
               <img src={latestReceipt.image_url} alt="Receipt full" />
             </div>
+          </div>
+        </div>
+      )}
+
+      {prepaidModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setPrepaidModalOpen(false)}>
+          <div className="modal-content" onClick={(event) => event.stopPropagation()}>
+            <div className="section-header">
+              <div>
+                <h3 className="section-title">Split Prepaid Item</h3>
+                <p className="caption" style={{ marginTop: 4 }}>
+                  Choose an equal split item and who already paid it.
+                </p>
+              </div>
+              <button className="button secondary" type="button" onClick={() => setPrepaidModalOpen(false)}>
+                Cancel
+              </button>
+            </div>
+            {sharedByAllItems.length === 0 ? (
+              <p className="caption">No equal split items available.</p>
+            ) : (
+              <>
+                <div className="grid">
+                  <label className="caption" htmlFor="prepaid-item">
+                    Item
+                  </label>
+                  <select
+                    id="prepaid-item"
+                    className="input"
+                    value={prepaidItemId}
+                    onChange={(event) => {
+                      const nextId = event.target.value;
+                      setPrepaidItemId(nextId);
+                      setPrepaidPayerId(equalSplitPaidBy.get(nextId) ?? '');
+                    }}
+                    disabled={locked}
+                  >
+                    {sharedByAllItems.map((item) => (
+                      <option key={`prepaid-option-${item.id}`} value={item.id}>
+                        {item.label} x{item.quantity} ({formatMoney(item.total_price, currency)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="assignment-row" style={{ marginTop: 12 }}>
+                  <span className="caption">Paid by</span>
+                  <div className="chip-row">
+                    <button
+                      className={`chip ${prepaidPayerId === '' ? 'active' : ''}`}
+                      type="button"
+                      onClick={() => setPrepaidPayerId('')}
+                      disabled={locked}
+                      aria-pressed={prepaidPayerId === ''}
+                    >
+                      None
+                    </button>
+                    {people.map((person) => {
+                      const assigned = prepaidPayerId === person.id;
+                      return (
+                        <button
+                          key={`prepaid-picker-${person.id}`}
+                          className={`chip ${assigned ? 'active' : ''}`}
+                          type="button"
+                          onClick={() => setPrepaidPayerId(person.id)}
+                          disabled={locked}
+                          aria-pressed={assigned}
+                        >
+                          {person.display_name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    onClick={() => handleSetEqualSplitPayer(prepaidItemId, null)}
+                    disabled={locked || !prepaidItemId}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    className="button primary"
+                    type="button"
+                    onClick={handlePrepaidSave}
+                    disabled={locked || !prepaidItemId}
+                  >
+                    Save
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

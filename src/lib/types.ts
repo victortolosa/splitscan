@@ -7,6 +7,7 @@ export type Session = {
   tax_total: number;
   tip_total: number;
   fees_total: number;
+  equal_split_paid_by: Record<string, string>;
   created_at: string;
   updated_at: string;
   locked_at: string | null;
