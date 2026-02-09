@@ -564,6 +564,14 @@ export function Workspace() {
                 <Link className="button secondary" to={`/${sessionId}/scan?mode=upload`}>
                   Upload Image
                 </Link>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => openPrepaidModal()}
+                  disabled={sharedByAllItems.length === 0}
+                >
+                  Split Prepaid item
+                </button>
               </>
             ) : (
               <>
@@ -572,6 +580,9 @@ export function Workspace() {
                 </button>
                 <button className="button secondary" disabled>
                   Upload Image
+                </button>
+                <button className="button secondary" disabled>
+                  Split Prepaid item
                 </button>
               </>
             )}
@@ -657,14 +668,12 @@ export function Workspace() {
           </div>
         </details>
 
-        <div className="panel">
-          <div className="section-header">
+        <div className="panel totals-panel">
+          <div className="section-header totals-header">
             <h3 className="section-title">Totals</h3>
+            <strong className="totals-header-amount">{formatMoney(fullSubtotal, currency)}</strong>
           </div>
           <div className="summary-grid">
-            <div className="summary-row">
-              <strong>{formatMoney(fullSubtotal, currency)}</strong>
-            </div>
             {feeTotal > 0 && (
               <div className="summary-row">
                 <span className="caption">Shared fees total</span>
@@ -689,7 +698,7 @@ export function Workspace() {
               <summary className="summary-row shared-summary">
                 <span className="caption">Equal Split items</span>
                 <div className="shared-summary-values">
-                  <span className="caption">
+                  <strong>
                     {formatMoney(
                       people.length > 0
                         ? sharedByAllItems.reduce((sum, item) => sum + item.total_price, 0) / people.length
@@ -697,13 +706,13 @@ export function Workspace() {
                       currency
                     )}
                     /person
-                  </span>
-                  <strong>
+                  </strong>
+                  <span className="caption">
                     {formatMoney(
                       sharedByAllItems.reduce((sum, item) => sum + item.total_price, 0),
                       currency
                     )}
-                  </strong>
+                  </span>
                 </div>
               </summary>
               <div className="shared-body">
@@ -724,16 +733,6 @@ export function Workspace() {
               </div>
             </details>
           )}
-          <div style={{ marginTop: 12 }}>
-            <button
-              className="button secondary"
-              type="button"
-              onClick={() => openPrepaidModal()}
-              disabled={locked || sharedByAllItems.length === 0}
-            >
-              Split Prepaid item
-            </button>
-          </div>
           {sharedByAllItems
             .filter((item) => equalSplitPaidBy.has(item.id))
             .map((item) => {
@@ -749,8 +748,16 @@ export function Workspace() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <strong>-{formatMoney(deduction, currency)}</strong>
                     {!locked && (
-                      <button className="button secondary" type="button" onClick={() => openPrepaidModal(item.id)}>
-                        Edit
+                      <button
+                        className="icon-button"
+                        type="button"
+                        onClick={() => openPrepaidModal(item.id)}
+                        aria-label="Edit prepaid item"
+                        title="Edit"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Zm14.71-9.04 1.83-1.83a1 1 0 0 0 0-1.41L17.03 2.46a1 1 0 0 0-1.41 0l-1.83 1.83 3.92 3.92Z" />
+                        </svg>
                       </button>
                     )}
                   </div>
