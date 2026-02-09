@@ -1,5 +1,5 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { dataClient } from '../lib/data';
 import { runOcr, type OcrItem } from '../lib/ocr';
 
@@ -23,8 +23,10 @@ const confidenceLabel = (confidence: number) => {
 export function Scanner() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const viewerRef = useRef<HTMLDivElement>(null);
   const viewerScrollRef = useRef({ left: 0, top: 0 });
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -37,12 +39,14 @@ export function Scanner() {
   const [locked, setLocked] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [viewerTransparency, setViewerTransparency] = useState(0);
   const currency = 'USD';
 
+  const uploadOnly = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('mode') === 'upload';
+  }, [location.search]);
   const canCapture = Boolean(stream && status === 'idle');
   const clampZoom = (value: number) => Math.min(4, Math.max(1, value));
-  const viewerOpacity = 1 - viewerTransparency;
   const applyViewerScroll = () => {
     const viewer = viewerRef.current;
     if (!viewer) {
@@ -76,13 +80,12 @@ export function Scanner() {
   useEffect(() => {
     if (imageDataUrl) {
       setZoom(1);
-      setViewerTransparency(0);
       viewerScrollRef.current = { left: 0, top: 0 };
     }
   }, [imageDataUrl]);
 
   useEffect(() => {
-    if (status !== 'idle' || imageDataUrl) {
+    if (uploadOnly || status !== 'idle' || imageDataUrl) {
       return;
     }
     let active = true;
@@ -112,6 +115,18 @@ export function Scanner() {
       active = false;
     };
   }, [status, imageDataUrl]);
+
+  useEffect(() => {
+    if (!sessionId || status !== 'idle') {
+      return;
+    }
+    if (!uploadOnly) {
+      return;
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  }, [sessionId, status, uploadOnly]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -345,18 +360,29 @@ export function Scanner() {
 
       {status === 'idle' && (
         <section className="panel">
-          <h3 className="section-title">Capture a receipt</h3>
-          <div className="camera-frame">
-            <video ref={videoRef} playsInline muted className="camera-video" />
-            {!stream && <div className="camera-overlay">Camera preview unavailable</div>}
-          </div>
+          <h3 className="section-title">{uploadOnly ? 'Upload a receipt' : 'Capture a receipt'}</h3>
+          {!uploadOnly && (
+            <div className="camera-frame">
+              <video ref={videoRef} playsInline muted className="camera-video" />
+              {!stream && <div className="camera-overlay">Camera preview unavailable</div>}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 16 }}>
-            <button className="button primary" onClick={handleCapture} disabled={!canCapture || locked}>
-              Capture
-            </button>
-            <label className="button secondary" style={{ cursor: 'pointer' }}>
+            {!uploadOnly && (
+              <button className="button primary" onClick={handleCapture} disabled={!canCapture || locked}>
+                Capture
+              </button>
+            )}
+            <label className={`button ${uploadOnly ? 'primary' : 'secondary'}`} style={{ cursor: 'pointer' }}>
               Upload Image
-              <input type="file" accept="image/*" onChange={handleFile} hidden disabled={locked} />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFile}
+                hidden
+                disabled={locked}
+              />
             </label>
           </div>
           <p className="caption" style={{ marginTop: 12 }}>
@@ -525,65 +551,47 @@ export function Scanner() {
           className="receipt-viewer-backdrop"
           role="dialog"
           aria-modal="true"
-          style={{ background: `rgba(15, 12, 10, ${0.65 * viewerOpacity})` }}
+          style={{ background: 'rgba(15, 12, 10, 0.65)' }}
           onClick={(event) => {
             if (event.target === event.currentTarget) {
               handleViewerClose();
             }
           }}
         >
-          <div className="receipt-viewer-fade" style={{ opacity: viewerOpacity }}>
-            <div className="receipt-viewer-panel" onClick={(event) => event.stopPropagation()}>
-              <div className="receipt-viewer-toolbar">
-                <div className="receipt-viewer-title">Original receipt</div>
-                <div className="receipt-viewer-actions">
-                  <button
-                    className="button secondary"
-                    onClick={() => setZoom((value) => clampZoom(Number((value - 0.25).toFixed(2))))}
-                    disabled={zoom <= 1}
-                  >
-                    Zoom out
-                  </button>
-                  <button
-                    className="button secondary"
-                    onClick={() => setZoom((value) => clampZoom(Number((value + 0.25).toFixed(2))))}
-                    disabled={zoom >= 4}
-                  >
-                    Zoom in
-                  </button>
-                  <button className="button secondary" onClick={() => setZoom(1)} disabled={zoom === 1}>
-                    Reset
-                  </button>
-                  <button className="button primary" onClick={handleViewerClose}>
-                    Close
-                  </button>
-                </div>
-              </div>
-              <div className="receipt-viewer-canvas" ref={viewerRef}>
-                <img
-                  src={imageDataUrl}
-                  alt="Receipt full"
-                  style={{ transform: `scale(${zoom})` }}
-                  onLoad={applyViewerScroll}
-                />
+          <div className="receipt-viewer-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="receipt-viewer-toolbar">
+              <div className="receipt-viewer-title">Original receipt</div>
+              <div className="receipt-viewer-actions">
+                <button
+                  className="button secondary"
+                  onClick={() => setZoom((value) => clampZoom(Number((value - 0.25).toFixed(2))))}
+                  disabled={zoom <= 1}
+                >
+                  Zoom out
+                </button>
+                <button
+                  className="button secondary"
+                  onClick={() => setZoom((value) => clampZoom(Number((value + 0.25).toFixed(2))))}
+                  disabled={zoom >= 4}
+                >
+                  Zoom in
+                </button>
+                <button className="button secondary" onClick={() => setZoom(1)} disabled={zoom === 1}>
+                  Reset
+                </button>
+                <button className="button primary" onClick={handleViewerClose}>
+                  Close
+                </button>
               </div>
             </div>
-          </div>
-          <div className="receipt-viewer-slider" onClick={(event) => event.stopPropagation()}>
-            <label className="viewer-slider-label">
-              Transparency
-              <input
-                className="viewer-slider-input"
-                type="range"
-                min={0}
-                max={0.8}
-                step={0.05}
-                value={viewerTransparency}
-                onChange={(event) => setViewerTransparency(Number(event.target.value))}
-                aria-label="Transparency"
+            <div className="receipt-viewer-canvas" ref={viewerRef}>
+              <img
+                src={imageDataUrl}
+                alt="Receipt full"
+                style={{ transform: `scale(${zoom})` }}
+                onLoad={applyViewerScroll}
               />
-            </label>
-            <span className="viewer-slider-value">{Math.round(viewerTransparency * 100)}%</span>
+            </div>
           </div>
         </div>
       )}

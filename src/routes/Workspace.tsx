@@ -32,13 +32,8 @@ export function Workspace() {
   const [personName, setPersonName] = useState('');
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null);
   const [editingPersonName, setEditingPersonName] = useState('');
-  const [itemLabel, setItemLabel] = useState('');
-  const [itemQty, setItemQty] = useState(1);
-  const [itemPrice, setItemPrice] = useState(0);
-  const [taxInput, setTaxInput] = useState('0');
-  const [tipInput, setTipInput] = useState('0');
-  const [feesInput, setFeesInput] = useState('0');
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [peopleModalOpen, setPeopleModalOpen] = useState(false);
   const clientId = useMemo(() => getClientId(), []);
 
   useEffect(() => {
@@ -96,15 +91,6 @@ export function Workspace() {
       unsubscribe();
     };
   }, [sessionId]);
-
-  useEffect(() => {
-    if (!session) {
-      return;
-    }
-    setTaxInput(session.tax_total.toString());
-    setTipInput(session.tip_total.toString());
-    setFeesInput(session.fees_total.toString());
-  }, [session]);
 
   const locked = session?.status === 'LOCKED';
   const currency = session?.currency ?? 'USD';
@@ -171,6 +157,18 @@ export function Workspace() {
     return { totals, unassignedTotal };
   }, [billableItems, allocationMap, people]);
 
+  const sharedByAllItems = useMemo(() => {
+    if (people.length === 0) {
+      return [];
+    }
+    return billableItems.filter((item) => {
+      const itemAllocations = allocationMap.get(item.id);
+      return people.every((person) => itemAllocations?.has(person.id));
+    });
+  }, [billableItems, allocationMap, people]);
+
+  const sharedByAllItemIds = useMemo(() => new Set(sharedByAllItems.map((item) => item.id)), [sharedByAllItems]);
+
   const feeTotal = (session?.tax_total ?? 0) + (session?.tip_total ?? 0) + (session?.fees_total ?? 0);
   const feePerPerson = people.length > 0 ? feeTotal / people.length : 0;
   const grandTotal = fullSubtotal + feeTotal;
@@ -183,6 +181,55 @@ export function Workspace() {
     });
     return totals;
   }, [people, allocationTotals, feePerPerson]);
+
+  const personItemBreakdown = useMemo(() => {
+    const breakdown = new Map<
+      string,
+      {
+        items: { id: string; label: string; amount: number }[];
+        itemsTotal: number;
+      }
+    >();
+    people.forEach((person) => breakdown.set(person.id, { items: [], itemsTotal: 0 }));
+
+    billableItems.forEach((item) => {
+      if (sharedByAllItemIds.has(item.id)) {
+        return;
+      }
+      const itemAllocations = allocationMap.get(item.id);
+      if (!itemAllocations || itemAllocations.size === 0) {
+        return;
+      }
+      const allocationsList = [...itemAllocations.values()];
+      const sharesTotal = allocationsList.reduce((sum, allocation) => sum + allocation.shares, 0);
+      if (sharesTotal <= 0) {
+        return;
+      }
+      allocationsList.forEach((allocation) => {
+        const shareAmount = item.total_price * (allocation.shares / sharesTotal);
+        const personBreakdown = breakdown.get(allocation.person_id);
+        if (!personBreakdown) {
+          return;
+        }
+        personBreakdown.items.push({
+          id: item.id,
+          label: item.label,
+          amount: shareAmount,
+        });
+        personBreakdown.itemsTotal += shareAmount;
+      });
+    });
+
+    breakdown.forEach((entry) => {
+      entry.items.sort((a, b) => b.amount - a.amount);
+    });
+
+    return breakdown;
+  }, [people, billableItems, allocationMap, sharedByAllItemIds]);
+
+  const sharedByAllPerPerson = people.length > 0
+    ? sharedByAllItems.reduce((sum, item) => sum + item.total_price, 0) / people.length
+    : 0;
 
   const handleAddPerson = async (event: FormEvent) => {
     event.preventDefault();
@@ -225,29 +272,6 @@ export function Workspace() {
     }
   };
 
-  const handleAddItem = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!sessionId || !itemLabel.trim()) {
-      return;
-    }
-    const quantity = Number(itemQty) || 1;
-    const unitPrice = Number(itemPrice) || 0;
-    const total = quantity * unitPrice;
-    try {
-      await dataClient.addItem(sessionId, {
-        label: itemLabel.trim(),
-        quantity,
-        unit_price: unitPrice,
-        total_price: total,
-        group_id: null,
-      });
-      setItemLabel('');
-      setItemQty(1);
-      setItemPrice(0);
-    } catch (err) {
-      setError('Unable to add item.');
-    }
-  };
 
   const handleLock = async () => {
     if (!sessionId || locked) {
@@ -303,24 +327,30 @@ export function Workspace() {
     }
   };
 
-  const handleFeesUpdate = async (event: FormEvent) => {
-    event.preventDefault();
+  const handleToggleAllAllocations = async (itemId: string) => {
     if (!sessionId || locked) {
       return;
     }
-    const tax = Number(taxInput) || 0;
-    const tip = Number(tipInput) || 0;
-    const fees = Number(feesInput) || 0;
+    const itemAllocations = allocationMap.get(itemId);
+    const allAssigned = people.length > 0 && people.every((person) => itemAllocations?.has(person.id));
     try {
-      await dataClient.updateSession(sessionId, {
-        tax_total: tax,
-        tip_total: tip,
-        fees_total: fees,
-      });
+      if (allAssigned) {
+        await Promise.all(
+          people.map((person) => {
+            const allocation = itemAllocations?.get(person.id);
+            return allocation ? dataClient.removeAllocation(sessionId, allocation.id) : Promise.resolve();
+          })
+        );
+      } else {
+        await Promise.all(
+          people.map((person) => dataClient.setAllocation(sessionId, { item_id: itemId, person_id: person.id, shares: 1 }))
+        );
+      }
     } catch (err) {
-      setError('Unable to update fees.');
+      setError('Unable to update allocation.');
     }
   };
+
 
   if (loading) {
     return (
@@ -363,9 +393,25 @@ export function Workspace() {
       </div>
 
       <section className="panel">
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-          <h2 style={{ margin: 0 }}>Session {session.id}</h2>
-          <span className="badge">{session.status}</span>
+        <div className="section-header">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+            <h2 style={{ margin: 0 }}>Session {session.id}</h2>
+            <span className="badge">{session.status}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {locked ? (
+              <button className="button secondary" type="button" disabled>
+                Edit Receipt
+              </button>
+            ) : (
+              <Link className="button secondary" to={`/${sessionId}/scan`}>
+                Edit Receipt
+              </Link>
+            )}
+            <button className="button secondary" type="button" onClick={() => setPeopleModalOpen(true)}>
+              Manage People
+            </button>
+          </div>
         </div>
         <p className="caption">Client: {clientId}</p>
         {locked && <p className="notice">This session is locked. Edits are disabled for everyone.</p>}
@@ -376,131 +422,32 @@ export function Workspace() {
             </button>
           )}
           {!locked ? (
-            <Link className="button primary" to={`/${sessionId}/scan`}>
-              Scan Receipt
-            </Link>
+            <>
+              <Link className="button primary" to={`/${sessionId}/scan`}>
+                Scan Receipt
+              </Link>
+              <Link className="button secondary" to={`/${sessionId}/scan?mode=upload`}>
+                Upload Image
+              </Link>
+            </>
           ) : (
-            <button className="button primary" disabled>
-              Scan Receipt
-            </button>
+            <>
+              <button className="button primary" disabled>
+                Scan Receipt
+              </button>
+              <button className="button secondary" disabled>
+                Upload Image
+              </button>
+            </>
           )}
         </div>
       </section>
 
       <section className="workspace-layout">
         <div className="panel">
-          <h3 className="section-title">People</h3>
-          <form onSubmit={handleAddPerson} className="grid">
-            <label className="sr-only" htmlFor="person-name">
-              Person name
-            </label>
-            <input
-              id="person-name"
-              className="input"
-              placeholder="Name"
-              value={personName}
-              onChange={(event) => setPersonName(event.target.value)}
-              disabled={locked}
-            />
-            <button className="button primary" type="submit" disabled={locked}>
-              Add Person
-            </button>
-          </form>
-          <div className="list" style={{ marginTop: 16 }}>
-            {people.length === 0 ? (
-              <p className="caption">No one added yet.</p>
-            ) : (
-              people.map((person) => (
-                <div key={person.id} className="list-item">
-                  {editingPersonId === person.id ? (
-                    <form
-                      onSubmit={handleUpdatePerson}
-                      style={{ display: 'flex', gap: 12, alignItems: 'center', width: '100%' }}
-                    >
-                      <label className="sr-only" htmlFor={`edit-person-${person.id}`}>
-                        Edit person name
-                      </label>
-                      <input
-                        id={`edit-person-${person.id}`}
-                        className="input"
-                        value={editingPersonName}
-                        onChange={(event) => setEditingPersonName(event.target.value)}
-                        disabled={locked}
-                        autoFocus
-                        style={{ flex: 1, minWidth: 0 }}
-                      />
-                      <button className="button secondary" type="submit" disabled={locked}>
-                        Save
-                      </button>
-                      <button className="button secondary" type="button" onClick={handleCancelEditPerson} disabled={locked}>
-                        Cancel
-                      </button>
-                    </form>
-                  ) : (
-                    <>
-                      <span>{person.display_name}</span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span>{formatMoney(personTotals.get(person.id) ?? 0, currency)}</span>
-                        {!locked && (
-                          <button className="button secondary" type="button" onClick={() => handleEditPerson(person)}>
-                            Edit
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              ))
-            )}
+          <div className="section-header">
+            <h3 className="section-title">Items</h3>
           </div>
-        </div>
-
-        <div className="panel">
-          <h3 className="section-title">Items</h3>
-          <form onSubmit={handleAddItem} className="grid">
-            <label className="sr-only" htmlFor="item-label">
-              Item label
-            </label>
-            <input
-              id="item-label"
-              className="input"
-              placeholder="Item label"
-              value={itemLabel}
-              onChange={(event) => setItemLabel(event.target.value)}
-              disabled={locked}
-            />
-            <div className="grid two">
-              <label className="sr-only" htmlFor="item-qty">
-                Quantity
-              </label>
-              <input
-                id="item-qty"
-                className="input"
-                type="number"
-                min={1}
-                step={1}
-                value={itemQty}
-                onChange={(event) => setItemQty(Number(event.target.value))}
-                disabled={locked}
-              />
-              <label className="sr-only" htmlFor="item-price">
-                Unit price
-              </label>
-              <input
-                id="item-price"
-                className="input"
-                type="number"
-                min={0}
-                step={0.01}
-                value={itemPrice}
-                onChange={(event) => setItemPrice(Number(event.target.value))}
-                disabled={locked}
-              />
-            </div>
-            <button className="button primary" type="submit" disabled={locked}>
-              Add Item
-            </button>
-          </form>
           <div className="list" style={{ marginTop: 16 }}>
             {displayItems.length === 0 ? (
               <p className="caption">No items yet.</p>
@@ -524,21 +471,32 @@ export function Workspace() {
                           {people.length === 0 ? (
                             <span className="caption">Add people to assign items.</span>
                           ) : (
-                            people.map((person) => {
-                              const assigned = itemAllocations?.has(person.id);
-                              return (
-                                <button
-                                  key={person.id}
-                                  className={`chip ${assigned ? 'active' : ''}`}
-                                  type="button"
-                                  onClick={() => handleToggleAllocation(item.id, person.id)}
-                                  disabled={locked}
-                                  aria-pressed={assigned}
-                                >
-                                  {person.display_name}
-                                </button>
-                              );
-                            })
+                            <>
+                              <button
+                                className={`chip ${people.length > 0 && people.every((person) => itemAllocations?.has(person.id)) ? 'active' : ''}`}
+                                type="button"
+                                onClick={() => handleToggleAllAllocations(item.id)}
+                                disabled={locked}
+                                aria-pressed={people.length > 0 && people.every((person) => itemAllocations?.has(person.id))}
+                              >
+                                Equal Split
+                              </button>
+                              {people.map((person) => {
+                                const assigned = itemAllocations?.has(person.id);
+                                return (
+                                  <button
+                                    key={person.id}
+                                    className={`chip ${assigned ? 'active' : ''}`}
+                                    type="button"
+                                    onClick={() => handleToggleAllocation(item.id, person.id)}
+                                    disabled={locked}
+                                    aria-pressed={assigned}
+                                  >
+                                    {person.display_name}
+                                  </button>
+                                );
+                              })}
+                            </>
                           )}
                         </div>
                       </div>
@@ -566,94 +524,121 @@ export function Workspace() {
             <strong>{formatMoney(subtotal, currency)}</strong>
           </div>
         </div>
-      </section>
 
-      <section className="panel">
-        <h3 className="section-title">Totals & Fees</h3>
-        <form onSubmit={handleFeesUpdate} className="grid">
-          <div className="grid two">
-            <label className="sr-only" htmlFor="tax-input">
-              Tax
-            </label>
-            <input
-              id="tax-input"
-              className="input"
-              type="number"
-              min={0}
-              step={0.01}
-              value={taxInput}
-              onChange={(event) => setTaxInput(event.target.value)}
-              disabled={locked}
-              placeholder="Tax"
-            />
-            <label className="sr-only" htmlFor="tip-input">
-              Tip
-            </label>
-            <input
-              id="tip-input"
-              className="input"
-              type="number"
-              min={0}
-              step={0.01}
-              value={tipInput}
-              onChange={(event) => setTipInput(event.target.value)}
-              disabled={locked}
-              placeholder="Tip"
-            />
+        <div className="panel">
+          <div className="section-header">
+            <h3 className="section-title">Totals & Fees</h3>
           </div>
-          <div className="grid two">
-            <label className="sr-only" htmlFor="fees-input">
-              Additional fees
-            </label>
-            <input
-              id="fees-input"
-              className="input"
-              type="number"
-              min={0}
-              step={0.01}
-              value={feesInput}
-              onChange={(event) => setFeesInput(event.target.value)}
-              disabled={locked}
-              placeholder="Additional fees"
-            />
-            <button className="button secondary" type="submit" disabled={locked}>
-              Update Fees
-            </button>
-          </div>
-        </form>
-        <div className="summary-grid">
-          <div className="summary-row">
-            <span className="caption">Items subtotal</span>
-            <strong>{formatMoney(fullSubtotal, currency)}</strong>
-          </div>
-          <div className="summary-row">
-            <span className="caption">Fees total</span>
-            <strong>{formatMoney(feeTotal, currency)}</strong>
-          </div>
-          <div className="summary-row">
-            <span className="caption">Unassigned items</span>
-            <strong>{formatMoney(allocationTotals.unassignedTotal, currency)}</strong>
-          </div>
-          <div className="summary-row">
-            <span className="caption">Grand total</span>
-            <strong>{formatMoney(grandTotal, currency)}</strong>
-          </div>
-          <div className="summary-row">
-            <span className="caption">Equal fee share / person</span>
-            <strong>{formatMoney(feePerPerson, currency)}</strong>
-          </div>
-        </div>
-        <div className="list" style={{ marginTop: 16 }}>
-          {people.length === 0 ? (
-            <p className="caption">Add people to see per-person totals.</p>
-          ) : (
-            people.map((person) => (
-              <div key={person.id} className="list-item">
-                <span>{person.display_name}</span>
-                <span>{formatMoney(personTotals.get(person.id) ?? 0, currency)}</span>
+          <p className="caption" style={{ marginTop: 0 }}>
+            Fees are managed in the receipt step.
+          </p>
+          <div className="summary-grid">
+            <div className="summary-row">
+              <span className="caption">Items subtotal</span>
+              <strong>{formatMoney(fullSubtotal, currency)}</strong>
+            </div>
+            {feeTotal > 0 && (
+              <div className="summary-row">
+                <span className="caption">Shared fees total</span>
+                <strong>{formatMoney(feeTotal, currency)}</strong>
               </div>
-            ))
+            )}
+            {allocationTotals.unassignedTotal > 0 && (
+              <div className="summary-row">
+                <span className="caption">Unassigned items</span>
+                <strong>{formatMoney(allocationTotals.unassignedTotal, currency)}</strong>
+              </div>
+            )}
+            <div className="summary-row">
+              <span className="caption">Grand total</span>
+              <strong>{formatMoney(grandTotal, currency)}</strong>
+            </div>
+            {feePerPerson > 0 && (
+              <div className="summary-row">
+                <span className="caption">Equal fee share / person</span>
+                <strong>{formatMoney(feePerPerson, currency)}</strong>
+              </div>
+            )}
+          </div>
+          {sharedByAllItems.length > 0 && (
+            <details className="shared-breakdown">
+              <summary className="summary-row shared-summary">
+                <span className="caption">Equal Split items</span>
+                <div className="shared-summary-values">
+                  <span className="caption">
+                    {formatMoney(
+                      people.length > 0
+                        ? sharedByAllItems.reduce((sum, item) => sum + item.total_price, 0) / people.length
+                        : 0,
+                      currency
+                    )}
+                    /person
+                  </span>
+                  <strong>
+                    {formatMoney(
+                      sharedByAllItems.reduce((sum, item) => sum + item.total_price, 0),
+                      currency
+                    )}
+                  </strong>
+                </div>
+              </summary>
+              <div className="shared-body">
+                {sharedByAllItems.map((item) => {
+                  const perPersonShare = people.length > 0 ? item.total_price / people.length : 0;
+                  return (
+                    <div key={`shared-breakdown-${item.id}`} className="shared-item">
+                      <div className="shared-item-row">
+                        <span>{item.label} x{item.quantity}</span>
+                        <div className="shared-item-values">
+                          <span className="caption">{formatMoney(perPersonShare, currency)}/person</span>
+                          <span>{formatMoney(item.total_price, currency)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
           )}
+          <div className="list" style={{ marginTop: 16 }}>
+            {people.length === 0 ? (
+              <p className="caption">Add people to see per-person totals.</p>
+            ) : (
+              people.map((person) => (
+                <details key={person.id} className="breakdown-card">
+                  <summary className="list-item breakdown-summary">
+                    <span className="breakdown-arrow" aria-hidden="true" />
+                    <span>{person.display_name}</span>
+                    <span>{formatMoney(personTotals.get(person.id) ?? 0, currency)}</span>
+                  </summary>
+                  <div className="breakdown-body">
+                    <div className="breakdown-line">
+                      <span className="caption">Items total</span>
+                      <strong>{formatMoney(allocationTotals.totals.get(person.id) ?? 0, currency)}</strong>
+                    </div>
+                    {sharedByAllItems.length > 0 && (
+                      <div className="breakdown-line">
+                        <span className="caption">Shared by all</span>
+                        <strong>{formatMoney(sharedByAllPerPerson, currency)}</strong>
+                      </div>
+                    )}
+                    <div className="breakdown-items">
+                      {(personItemBreakdown.get(person.id)?.items ?? []).length === 0 ? (
+                        <p className="caption">No assigned items yet.</p>
+                      ) : (
+                        (personItemBreakdown.get(person.id)?.items ?? []).map((entry) => (
+                          <div key={`${person.id}-${entry.id}-${entry.amount}`} className="breakdown-line">
+                            <span className="caption">{entry.label}</span>
+                            <strong>{formatMoney(entry.amount, currency)}</strong>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </details>
+              ))
+            )}
+          </div>
         </div>
       </section>
 
@@ -684,6 +669,92 @@ export function Workspace() {
             </button>
             <div className="modal-image">
               <img src={latestReceipt.image_url} alt="Receipt full" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {peopleModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setPeopleModalOpen(false)}>
+          <div className="modal-content people-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="section-header">
+              <div>
+                <h3 className="section-title">Add People</h3>
+                <p className="caption" style={{ marginTop: 4 }}>
+                  Manage who is splitting the check.
+                </p>
+              </div>
+              <button className="button secondary" type="button" onClick={() => setPeopleModalOpen(false)}>
+                Done
+              </button>
+            </div>
+            <form onSubmit={handleAddPerson} className="grid">
+              <label className="sr-only" htmlFor="person-name">
+                Person name
+              </label>
+              <input
+                id="person-name"
+                className="input"
+                placeholder="Name"
+                value={personName}
+                onChange={(event) => setPersonName(event.target.value)}
+                disabled={locked}
+              />
+              <button className="button primary" type="submit" disabled={locked}>
+                Add Person
+              </button>
+            </form>
+            <div className="list" style={{ marginTop: 16 }}>
+              {people.length === 0 ? (
+                <p className="caption">No one added yet.</p>
+              ) : (
+                people.map((person) => (
+                  <div key={person.id} className="list-item">
+                    {editingPersonId === person.id ? (
+                      <form
+                        onSubmit={handleUpdatePerson}
+                        style={{ display: 'flex', gap: 12, alignItems: 'center', width: '100%' }}
+                      >
+                        <label className="sr-only" htmlFor={`edit-person-${person.id}`}>
+                          Edit person name
+                        </label>
+                        <input
+                          id={`edit-person-${person.id}`}
+                          className="input"
+                          value={editingPersonName}
+                          onChange={(event) => setEditingPersonName(event.target.value)}
+                          disabled={locked}
+                          autoFocus
+                          style={{ flex: 1, minWidth: 0 }}
+                        />
+                        <button className="button secondary" type="submit" disabled={locked}>
+                          Save
+                        </button>
+                        <button
+                          className="button secondary"
+                          type="button"
+                          onClick={handleCancelEditPerson}
+                          disabled={locked}
+                        >
+                          Cancel
+                        </button>
+                      </form>
+                    ) : (
+                      <>
+                        <span>{person.display_name}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <span>{formatMoney(personTotals.get(person.id) ?? 0, currency)}</span>
+                          {!locked && (
+                            <button className="button secondary" type="button" onClick={() => handleEditPerson(person)}>
+                              Edit
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

@@ -249,6 +249,19 @@ textarea {
   margin: 0 0 12px;
 }
 
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.section-header .section-title {
+  margin-bottom: 0;
+}
+
 .review-toolbar {
   display: flex;
   justify-content: space-between;
@@ -298,9 +311,10 @@ textarea {
 }
 
 .chip.active {
-  background: rgba(47, 93, 80, 0.16);
-  color: var(--leaf);
-  border-color: rgba(47, 93, 80, 0.4);
+  background: rgba(47, 93, 80, 0.28);
+  color: #1f5b4a;
+  border-color: rgba(47, 93, 80, 0.75);
+  box-shadow: inset 0 0 0 1px rgba(47, 93, 80, 0.25);
 }
 
 .group-form {
@@ -319,6 +333,124 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.shared-breakdown {
+  margin-top: 12px;
+  border: 1px solid rgba(31, 26, 20, 0.12);
+  border-radius: 14px;
+  background: #fffaf2;
+  overflow: hidden;
+}
+
+.shared-summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 12px 16px;
+  margin: 0;
+  background: rgba(255, 241, 221, 0.85);
+}
+
+.shared-summary::-webkit-details-marker {
+  display: none;
+}
+
+.shared-body {
+  padding: 12px 16px 16px;
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid rgba(31, 26, 20, 0.1);
+}
+
+.shared-item {
+  display: grid;
+  gap: 8px;
+}
+
+.shared-item-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 600;
+}
+
+.shared-item-values {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.shared-summary-values {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+
+.breakdown-card {
+  border: 1px solid rgba(31, 26, 20, 0.14);
+  border-radius: 16px;
+  background: #fffaf2;
+  overflow: hidden;
+}
+
+.breakdown-summary {
+  cursor: pointer;
+  list-style: none;
+  background: rgba(255, 241, 221, 0.9);
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  position: relative;
+  padding-left: 36px;
+}
+
+.breakdown-summary::-webkit-details-marker {
+  display: none;
+}
+
+.breakdown-body {
+  padding: 12px 16px 14px;
+  display: grid;
+  gap: 8px;
+  background: #fffaf2;
+  border-top: 1px solid rgba(31, 26, 20, 0.08);
+}
+
+.breakdown-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.breakdown-items {
+  display: grid;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(31, 26, 20, 0.14);
+}
+
+.breakdown-card[open] .breakdown-summary {
+  background: #fffaf2;
+}
+
+.breakdown-arrow {
+  position: absolute;
+  left: 14px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid rgba(31, 26, 20, 0.6);
+  border-bottom: 2px solid rgba(31, 26, 20, 0.6);
+  transform: rotate(45deg);
+  transition: transform 150ms ease, opacity 150ms ease;
+  opacity: 0.7;
+}
+
+.breakdown-card[open] .breakdown-arrow {
+  transform: rotate(-135deg);
+  opacity: 1;
 }
 
 .camera-frame {
@@ -524,6 +656,10 @@ textarea {
   box-shadow: 0 20px 60px rgba(15, 12, 10, 0.35);
 }
 
+.people-modal {
+  max-width: 720px;
+}
+
 .modal-image img {
   width: 100%;
   max-height: 80vh;
@@ -540,13 +676,6 @@ textarea {
   place-items: center;
   padding: 24px;
   z-index: 1200;
-}
-
-.receipt-viewer-fade {
-  width: 100%;
-  height: 100%;
-  display: grid;
-  place-items: center;
 }
 
 .receipt-viewer-panel {
@@ -595,42 +724,6 @@ textarea {
   max-width: none;
   display: block;
   transform-origin: top left;
-}
-
-.receipt-viewer-slider {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  background: #fffaf2;
-  border-radius: 14px;
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid rgba(31, 26, 20, 0.12);
-  box-shadow: 0 12px 30px rgba(15, 12, 10, 0.2);
-  z-index: 2;
-}
-
-.viewer-slider-label {
-  display: grid;
-  gap: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--ink-muted);
-}
-
-.viewer-slider-input {
-  width: 160px;
-  accent-color: #2f5d50;
-}
-
-.viewer-slider-value {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--ink);
-  min-width: 38px;
-  text-align: right;
 }
 
 .fade-in {

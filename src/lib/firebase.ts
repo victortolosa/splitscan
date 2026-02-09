@@ -20,12 +20,31 @@ const runtimeConfig =
 
 const env = import.meta.env as Record<string, string | undefined>;
 
+const isNonEmpty = (value?: string) => typeof value === 'string' && value.trim().length > 0;
+
+const isDev = Boolean(import.meta.env?.DEV);
+
 const resolveConfig = (key: keyof RuntimeConfig) => {
-  const value = runtimeConfig?.[key];
-  if (typeof value === 'string' && value.trim().length > 0) {
-    return value;
+  const runtimeValue = runtimeConfig?.[key];
+  const envValue = env[key];
+
+  if (isDev) {
+    if (isNonEmpty(envValue)) {
+      return envValue;
+    }
+    if (isNonEmpty(runtimeValue)) {
+      return runtimeValue;
+    }
+    return undefined;
   }
-  return env[key];
+
+  if (isNonEmpty(runtimeValue)) {
+    return runtimeValue;
+  }
+  if (isNonEmpty(envValue)) {
+    return envValue;
+  }
+  return undefined;
 };
 
 const config = {
