@@ -34,12 +34,26 @@ service cloud.firestore {
         && data.tax_total is number
         && data.tip_total is number
         && data.fees_total is number
-        && data.equal_split_paid_by is map
+        && (('equal_split_paid_by' in data) ? data.equal_split_paid_by is map : true)
         && data.created_at is string
         && data.updated_at is string
         && (('receipt_name' in data) ? data.receipt_name is string : true)
-        && (data.locked_at == null || data.locked_at is string)
-        && (data.locked_by == null || data.locked_by is string);
+        && (('locked_at' in data) ? (data.locked_at == null || data.locked_at is string) : true)
+        && (('locked_by' in data) ? (data.locked_by == null || data.locked_by is string) : true);
+    }
+
+    function sessionUpdateFieldsValid() {
+      return request.writeFields.hasOnly([
+        'receipt_name',
+        'status',
+        'locked_at',
+        'locked_by',
+        'tax_total',
+        'tip_total',
+        'fees_total',
+        'equal_split_paid_by',
+        'updated_at',
+      ]);
     }
 
     match /sessions/{sessionId} {
@@ -49,8 +63,8 @@ service cloud.firestore {
         && sessionValuesValid(request.resource.data);
       allow update: if isSignedIn()
         && resource.data.status == 'ACTIVE'
-        && sessionKeysValid(request.resource.data)
-        && sessionValuesValid(request.resource.data);
+        && request.resource.data.status in ['ACTIVE', 'LOCKED']
+        && sessionUpdateFieldsValid();
       allow delete: if false;
 
       match /people/{personId} {

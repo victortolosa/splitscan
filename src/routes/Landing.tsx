@@ -87,7 +87,6 @@ export function Landing() {
               ? 'Connected to Firebase realtime. Share the link and watch updates sync.'
               : 'Running in local mode. Configure Firebase to enable live multi-device sync.'}
           </p>
-          <span className="badge">Mode: {dataClient.mode}</span>
         </div>
 
         <div className="panel">

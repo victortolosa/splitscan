@@ -41,7 +41,6 @@ export function Scanner() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const currency = 'USD';
-  const showReceiptNameField = isEditMode || status === 'review';
 
   const scannerMode = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -49,6 +48,7 @@ export function Scanner() {
   }, [location.search]);
   const uploadOnly = scannerMode === 'upload';
   const isEditMode = scannerMode === 'edit';
+  const showReceiptNameField = isEditMode || status === 'review';
   const canCapture = Boolean(stream && status === 'idle');
   const clampZoom = (value: number) => Math.min(4, Math.max(1, value));
   const applyViewerScroll = () => {
@@ -268,8 +268,11 @@ export function Scanner() {
     }
     try {
       await dataClient.updateSession(sessionId, { receipt_name: receiptName.trim() });
-    } catch {
-      setError('Unable to update receipt name.');
+    } catch (err) {
+      const message =
+        typeof err === 'object' && err && 'message' in err ? String((err as { message?: unknown }).message) : '';
+      console.error(err);
+      setError(message ? `Unable to update receipt name: ${message}` : 'Unable to update receipt name.');
     }
   };
 

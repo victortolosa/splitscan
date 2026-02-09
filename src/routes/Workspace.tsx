@@ -484,7 +484,6 @@ export function Workspace() {
           <span className="brand-dot" />
           SplitScan
         </div>
-        <span className="badge">Mode: {dataClient.mode}</span>
       </div>
 
       <details className="panel mobile-collapsible session-collapsible">
@@ -492,9 +491,6 @@ export function Workspace() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <h2 style={{ margin: 0 }}>{receiptTitle}</h2>
-              <p className="caption" style={{ margin: 0 }}>
-                {sessionSubtitle}
-              </p>
             </div>
             <span className="badge">{session.status}</span>
           </div>
