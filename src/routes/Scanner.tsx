@@ -1,7 +1,9 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { dataClient } from '../lib/data';
-import { runOcr, type OcrItem } from '../lib/ocr';
+import { runOcr, parseReceiptText, type OcrItem } from '../lib/ocr';
+import { applyImageAdjustments, type CropRect } from '../lib/imageAdjust';
+import { ImageAdjuster } from '../components/ImageAdjuster';
 
 const formatMoney = (value: number, currency: string) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value);
@@ -34,12 +36,17 @@ export function Scanner() {
   const [imageMeta, setImageMeta] = useState<{ width: number; height: number } | null>(null);
   const [ocrItems, setOcrItems] = useState<ReviewItem[]>([]);
   const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState<'idle' | 'scanning' | 'review' | 'saving'>('idle');
+  const [status, setStatus] = useState<'idle' | 'adjusting' | 'scanning' | 'review' | 'saving'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
+  const [brightness, setBrightness] = useState(0);
+  const [contrast, setContrast] = useState(0);
+  const [cropRect, setCropRect] = useState<CropRect | null>(null);
   const [receiptName, setReceiptName] = useState('');
   const [viewerOpen, setViewerOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [showPaste, setShowPaste] = useState(false);
+  const [pasteText, setPasteText] = useState('');
   const currency = 'USD';
 
   const scannerMode = useMemo(() => {
@@ -215,7 +222,10 @@ export function Scanner() {
     setStream(null);
     setImageDataUrl(dataUrl);
     setImageMeta({ width, height });
-    await runRecognition(dataUrl);
+    setCropRect({ x: 0, y: 0, w: width, h: height });
+    setBrightness(0);
+    setContrast(0);
+    setStatus('adjusting');
   };
 
   const handleFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -231,10 +241,13 @@ export function Scanner() {
       }
       const dataUrl = reader.result;
       const img = new Image();
-      img.onload = async () => {
+      img.onload = () => {
         setImageMeta({ width: img.width, height: img.height });
         setImageDataUrl(dataUrl);
-        await runRecognition(dataUrl);
+        setCropRect({ x: 0, y: 0, w: img.width, h: img.height });
+        setBrightness(0);
+        setContrast(0);
+        setStatus('adjusting');
       };
       img.src = dataUrl;
     };
@@ -249,8 +262,25 @@ export function Scanner() {
       setOcrItems(items.map((item) => ({ ...item, include: true })));
       setStatus('review');
     } catch (err) {
-      setError('OCR failed. You can still add items manually.');
+      const message = err instanceof Error ? err.message : '';
+      setError(message === 'OCR API key not configured' ? message : 'OCR failed. You can still add items manually.');
       setStatus('review');
+    }
+  };
+
+  const handleApplyAdjustments = async () => {
+    if (!imageDataUrl || !cropRect) return;
+    try {
+      const adjusted = await applyImageAdjustments(imageDataUrl, cropRect, brightness, contrast);
+      const img = new Image();
+      img.onload = async () => {
+        setImageDataUrl(adjusted);
+        setImageMeta({ width: img.width, height: img.height });
+        await runRecognition(adjusted);
+      };
+      img.src = adjusted;
+    } catch {
+      await runRecognition(imageDataUrl);
     }
   };
 
@@ -260,6 +290,21 @@ export function Scanner() {
     setImageMeta(null);
     setOcrItems([]);
     setProgress(0);
+    setBrightness(0);
+    setContrast(0);
+    setCropRect(null);
+  };
+
+  const handlePasteSubmit = () => {
+    const text = pasteText.trim();
+    if (!text) return;
+    const items = parseReceiptText(text);
+    if (items.length > 0) {
+      setOcrItems(items.map((item) => ({ ...item, include: true })));
+    }
+    setPasteText('');
+    setShowPaste(false);
+    setStatus('review');
   };
 
   const handleReceiptNameSave = async () => {
@@ -473,17 +518,64 @@ export function Scanner() {
                 disabled={locked}
               />
             </label>
+            <button className="button secondary" onClick={() => setShowPaste(true)} disabled={locked}>
+              Paste Text
+            </button>
           </div>
-          <p className="caption" style={{ marginTop: 12 }}>
-            Tip: keep the receipt flat and fill the frame for better OCR.
-          </p>
+          {showPaste && (
+            <div style={{ marginTop: 16 }}>
+              <label>
+                <span className="field-label">Paste receipt text</span>
+                <textarea
+                  className="input"
+                  rows={8}
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  placeholder={'GuacQuesBlanco &Chip  17.99\nRoot Beer  4.79\nPepsi Zero  4.79\n...'}
+                  autoFocus
+                  style={{ resize: 'vertical', marginTop: 6 }}
+                />
+              </label>
+              <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+                <button className="button primary" onClick={handlePasteSubmit} disabled={!pasteText.trim()}>
+                  Parse Items
+                </button>
+                <button className="button secondary" onClick={() => { setShowPaste(false); setPasteText(''); }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {!showPaste && (
+            <p className="caption" style={{ marginTop: 12 }}>
+              Tip: use your device's text recognition (Live Text, Google Lens) to copy receipt text, then paste it here.
+            </p>
+          )}
+        </section>
+      )}
+
+      {status === 'adjusting' && imageDataUrl && imageMeta && cropRect && (
+        <section className="panel">
+          <ImageAdjuster
+            imageDataUrl={imageDataUrl}
+            imageWidth={imageMeta.width}
+            imageHeight={imageMeta.height}
+            brightness={brightness}
+            contrast={contrast}
+            cropRect={cropRect}
+            onBrightnessChange={setBrightness}
+            onContrastChange={setContrast}
+            onCropChange={setCropRect}
+            onConfirm={handleApplyAdjustments}
+            onRetake={handleReset}
+          />
         </section>
       )}
 
       {status === 'scanning' && (
         <section className="panel">
           <h3 className="section-title">Reading receipt</h3>
-          <p className="caption">OCR in progress… {(progress * 100).toFixed(0)}%</p>
+          <p className="caption">Uploading receipt… {(progress * 100).toFixed(0)}%</p>
           <div className="progress">
             <div className="progress-bar" style={{ width: `${Math.round(progress * 100)}%` }} />
           </div>
@@ -512,7 +604,7 @@ export function Scanner() {
               <p className="caption">
                 {isEditMode
                   ? 'No items yet. Add manual items here or scan a receipt from the workspace.'
-                  : 'No items detected. Add manually or try another photo.'}
+                  : 'No items detected. Try pasting the receipt text instead.'}
               </p>
             ) : (
               ocrItems.map((item, index) => (
@@ -625,10 +717,39 @@ export function Scanner() {
             <span className="caption">Parsed total</span>
             <strong>{formatMoney(total, currency)}</strong>
           </div>
+          {showPaste && (
+            <div style={{ marginTop: 16 }}>
+              <label>
+                <span className="field-label">Paste receipt text</span>
+                <textarea
+                  className="input"
+                  rows={8}
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  placeholder={'GuacQuesBlanco &Chip  17.99\nRoot Beer  4.79\nPepsi Zero  4.79\n...'}
+                  autoFocus
+                  style={{ resize: 'vertical', marginTop: 6 }}
+                />
+              </label>
+              <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+                <button className="button primary" onClick={handlePasteSubmit} disabled={!pasteText.trim()}>
+                  Parse Items
+                </button>
+                <button className="button secondary" onClick={() => { setShowPaste(false); setPasteText(''); }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 20 }}>
             {!isEditMode && (
               <button className="button secondary" onClick={handleReset}>
                 Retake
+              </button>
+            )}
+            {!isEditMode && !showPaste && (
+              <button className="button secondary" onClick={() => setShowPaste(true)}>
+                Paste Text
               </button>
             )}
             <button className="button secondary" onClick={handleAddBlank}>

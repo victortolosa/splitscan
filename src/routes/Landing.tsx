@@ -47,14 +47,9 @@ export function Landing() {
             Launch a shared session, enter items manually or with OCR later, and keep every total in sync for
             everyone at the table. No accounts, no friction.
           </p>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <button className="button primary" onClick={handleCreate} disabled={loading}>
-              {loading ? 'Creating...' : 'Create New Bill'}
-            </button>
-            <a className="button secondary" href="/">
-              Learn the flow
-            </a>
-          </div>
+          <button className="button primary" onClick={handleCreate} disabled={loading}>
+            {loading ? 'Creating...' : 'Create New Bill'}
+          </button>
         </div>
 
         <div className="panel slide-up">
@@ -79,16 +74,7 @@ export function Landing() {
         </div>
       </section>
 
-      <section className="grid two">
-        <div className="panel">
-          <h2>Local or Firebase modes</h2>
-          <p>
-            {dataClient.mode === 'firebase'
-              ? 'Connected to Firebase realtime. Share the link and watch updates sync.'
-              : 'Running in local mode. Configure Firebase to enable live multi-device sync.'}
-          </p>
-        </div>
-
+      <section>
         <div className="panel">
           <h2>Recent sessions</h2>
           {recent.length === 0 ? (

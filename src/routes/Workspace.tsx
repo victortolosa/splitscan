@@ -475,7 +475,7 @@ export function Workspace() {
         </div>
       </div>
 
-      <details className="panel mobile-collapsible session-collapsible">
+      <details className="panel mobile-collapsible session-collapsible" open={!latestReceipt || undefined}>
         <summary className="section-header mobile-collapsible__summary session-summary">
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -485,7 +485,7 @@ export function Workspace() {
           </div>
           <div className="session-summary-actions">
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {locked ? (
+              {latestReceipt && (locked ? (
                 <button className="button secondary" type="button" disabled onClick={(event) => event.stopPropagation()}>
                   Edit Receipt
                 </button>
@@ -497,7 +497,7 @@ export function Workspace() {
                 >
                   Edit Receipt
                 </Link>
-              )}
+              ))}
               <button
                 className="button secondary"
                 type="button"
@@ -523,7 +523,7 @@ export function Workspace() {
               <span className="badge">{session.status}</span>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {locked ? (
+              {latestReceipt && (locked ? (
                 <button className="button secondary" type="button" disabled>
                   Edit Receipt
                 </button>
@@ -531,7 +531,7 @@ export function Workspace() {
                 <Link className="button secondary" to={`/${sessionId}/scan?mode=edit`}>
                   Edit Receipt
                 </Link>
-              )}
+              ))}
               <button className="button secondary" type="button" onClick={() => setPeopleModalOpen(true)}>
                 Manage People
               </button>
