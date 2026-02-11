@@ -18,7 +18,6 @@ const SKIP_PATTERNS = [
   /\b(sub[\s\-]*total|grand[\s\-]*total|net[\s\-]*total)\b/i,
   /\btotal\s*:?\s*$/i,          // "Total", "Total:", "Food Total", "Order Total" at end
   /^total\b/i,                   // "Total 466.57" at start
-  /\btax(es)?\b/i,
   /^tip\b/i,
   /\b(balance|amount)\s*(due|owed|forward|tendered)?\s*$/i,
   /^change\s*(due)?\s*$/i,
@@ -336,7 +335,7 @@ export const runOcr = async (
     user_defined_dpi: '300',
   });
 
-  const result = await worker.recognize(canvas, {}, { text: true, blocks: true });
+  const result = await worker.recognize(canvas, { rotateAuto: true }, { text: true, blocks: true });
   await worker.terminate();
 
   const lines: OcrLine[] = [];
