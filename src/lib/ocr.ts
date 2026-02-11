@@ -317,12 +317,12 @@ export const runOcr = async (
   imageDataUrl: string,
   onProgress?: (progress: number) => void
 ): Promise<OcrItem[]> => {
-  const { createWorker } = await import('tesseract.js');
+  const Tesseract = await import('tesseract.js');
 
   const img = await loadImage(imageDataUrl);
   const canvas = preprocessImage(img);
 
-  const worker = await createWorker('eng', undefined, {
+  const worker = await Tesseract.createWorker('eng', undefined, {
     logger: (m: { status: string; progress: number }) => {
       if (m.status === 'recognizing text') {
         onProgress?.(m.progress);
@@ -330,15 +330,23 @@ export const runOcr = async (
     },
   });
 
-  const result = await worker.recognize(canvas);
+  await worker.setParameters({
+    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_COLUMN,
+    preserve_interword_spaces: '1',
+    user_defined_dpi: '300',
+  });
+
+  const result = await worker.recognize(canvas, {}, { text: true, blocks: true });
   await worker.terminate();
 
-  const lines: OcrLine[] = result.data.lines.map(
-    (line: { text: string; confidence: number }) => ({
-      text: line.text,
-      confidence: line.confidence,
-    })
-  );
+  const lines: OcrLine[] = [];
+  for (const block of result.data.blocks ?? []) {
+    for (const paragraph of block.paragraphs) {
+      for (const line of paragraph.lines) {
+        lines.push({ text: line.text, confidence: line.confidence });
+      }
+    }
+  }
 
   onProgress?.(1);
 
