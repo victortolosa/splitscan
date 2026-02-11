@@ -92,9 +92,6 @@ const cleanLabel = (text: string): string =>
     .replace(/\s{2,}/g, ' ')          // collapse whitespace
     .trim();
 
-const OCR_SPACE_URL = 'https://api.ocr.space/parse/image';
-const MAX_BASE64_BYTES = 1_024_000; // ~1 MB free-tier limit
-
 export const loadImage = (src: string): Promise<HTMLImageElement> =>
   new Promise((resolve, reject) => {
     const image = new Image();
@@ -161,31 +158,6 @@ const preprocessImage = (img: HTMLImageElement): HTMLCanvasElement => {
   return canvas;
 };
 
-const compressImage = async (dataUrl: string, maxBytes: number): Promise<string> => {
-  const img = await loadImage(dataUrl);
-  const preprocessed = preprocessImage(img);
-
-  let quality = 0.85;
-  let scale = 1;
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d')!;
-
-  for (let attempt = 0; attempt < 6; attempt++) {
-    canvas.width = Math.round(preprocessed.width * scale);
-    canvas.height = Math.round(preprocessed.height * scale);
-    ctx.drawImage(preprocessed, 0, 0, canvas.width, canvas.height);
-    const result = canvas.toDataURL('image/jpeg', quality);
-    // base64 payload size ≈ data URL length minus the prefix
-    if (result.length - result.indexOf(',') - 1 <= maxBytes) {
-      return result;
-    }
-    quality = Math.max(0.3, quality - 0.15);
-    scale = Math.max(0.25, scale - 0.15);
-  }
-
-  // Return last attempt even if still over limit
-  return canvas.toDataURL('image/jpeg', 0.3);
-};
 
 export const parseOcrLines = (lines: OcrLine[]): OcrItem[] => {
   const items: OcrItem[] = [];
@@ -345,53 +317,28 @@ export const runOcr = async (
   imageDataUrl: string,
   onProgress?: (progress: number) => void
 ): Promise<OcrItem[]> => {
-  const apiKey = import.meta.env.VITE_OCR_SPACE_API_KEY as string | undefined;
-  if (!apiKey) {
-    throw new Error('OCR API key not configured');
-  }
+  const { createWorker } = await import('tesseract.js');
 
-  onProgress?.(0.5);
+  const img = await loadImage(imageDataUrl);
+  const canvas = preprocessImage(img);
 
-  const compressed = await compressImage(imageDataUrl, MAX_BASE64_BYTES);
+  const worker = await createWorker('eng', undefined, {
+    logger: (m: { status: string; progress: number }) => {
+      if (m.status === 'recognizing text') {
+        onProgress?.(m.progress);
+      }
+    },
+  });
 
-  const body = new FormData();
-  body.append('apikey', apiKey);
-  body.append('base64Image', compressed);
-  body.append('language', 'eng');
-  body.append('isTable', 'true');
-  body.append('scale', 'true');
-  body.append('detectOrientation', 'true');
-  body.append('OCREngine', '1');
+  const result = await worker.recognize(canvas);
+  await worker.terminate();
 
-  const response = await fetch(OCR_SPACE_URL, { method: 'POST', body });
-
-  if (!response.ok) {
-    throw new Error(`OCR request failed (${response.status})`);
-  }
-
-  const data = await response.json();
-
-  if (data.IsErroredOnProcessing) {
-    throw new Error(data.ErrorMessage?.[0] ?? 'OCR processing error');
-  }
-
-  const parsed = data.ParsedResults?.[0];
-  let lines: OcrLine[];
-
-  if (parsed?.TextOverlay?.Lines?.length) {
-    const meanConf: number = parsed.TextOverlay.MeanConfidence ?? 80;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    lines = parsed.TextOverlay.Lines.map((l: any) => ({
-      text: l.LineText,
-      confidence: meanConf,
-    }));
-  } else {
-    const rawText: string = parsed?.ParsedText ?? '';
-    lines = rawText
-      .split('\n')
-      .filter((l: string) => l.trim())
-      .map((l: string) => ({ text: l, confidence: 75 }));
-  }
+  const lines: OcrLine[] = result.data.lines.map(
+    (line: { text: string; confidence: number }) => ({
+      text: line.text,
+      confidence: line.confidence,
+    })
+  );
 
   onProgress?.(1);
 
